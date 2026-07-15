@@ -101,7 +101,8 @@ end
 
 local function makeDraggable(handle, target)
 	local dragging = false
-	local dragInput
+	local dragMode
+	local touchInput
 	local dragStart
 	local startCenter
 
@@ -109,6 +110,8 @@ local function makeDraggable(handle, target)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			dragMode = input.UserInputType == Enum.UserInputType.Touch and "Touch" or "Mouse"
+			touchInput = dragMode == "Touch" and input or nil
 			dragStart = input.Position
 			startCenter = Vector2.new(
 				target.AbsolutePosition.X + target.AbsoluteSize.X * target.AnchorPoint.X,
@@ -118,20 +121,19 @@ local function makeDraggable(handle, target)
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
 					dragging = false
+					dragMode = nil
+					touchInput = nil
 				end
 			end)
 		end
 	end)
 
-	handle.InputChanged:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch then
-			dragInput = input
-		end
-	end)
-
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and input == dragInput then
+		local isMouseMove = dragMode == "Mouse"
+			and input.UserInputType == Enum.UserInputType.MouseMovement
+		local isTouchMove = dragMode == "Touch" and input == touchInput
+
+		if dragging and (isMouseMove or isTouchMove) then
 			local delta = input.Position - dragStart
 			local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
 				or Vector2.new(1920, 1080)
@@ -153,7 +155,8 @@ end
 
 local function makeResizable(handle, target, minimum, maximum)
 	local resizing = false
-	local resizeInput
+	local resizeMode
+	local touchInput
 	local resizeStart
 	local startSize
 
@@ -161,26 +164,27 @@ local function makeResizable(handle, target, minimum, maximum)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			resizing = true
+			resizeMode = input.UserInputType == Enum.UserInputType.Touch and "Touch" or "Mouse"
+			touchInput = resizeMode == "Touch" and input or nil
 			resizeStart = input.Position
 			startSize = target.AbsoluteSize
 
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
 					resizing = false
+					resizeMode = nil
+					touchInput = nil
 				end
 			end)
 		end
 	end)
 
-	handle.InputChanged:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch then
-			resizeInput = input
-		end
-	end)
-
 	UserInputService.InputChanged:Connect(function(input)
-		if resizing and input == resizeInput then
+		local isMouseMove = resizeMode == "Mouse"
+			and input.UserInputType == Enum.UserInputType.MouseMovement
+		local isTouchMove = resizeMode == "Touch" and input == touchInput
+
+		if resizing and (isMouseMove or isTouchMove) then
 			local delta = input.Position - resizeStart
 			local width = math.clamp(startSize.X + delta.X, minimum.X, maximum.X)
 			local height = math.clamp(startSize.Y + delta.Y, minimum.Y, maximum.Y)
