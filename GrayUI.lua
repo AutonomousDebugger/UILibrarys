@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "1.1.0"
+GrayUI.Version = "1.2.0"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -346,33 +346,66 @@ function Section:AddTextArea(options)
 		Parent = row,
 	})
 
-	local box = create("TextBox", {
+	local scroller = create("ScrollingFrame", {
 		BackgroundColor3 = Theme.Background,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(),
+		Position = UDim2.fromOffset(9, 32),
+		ScrollBarImageColor3 = Theme.Stroke,
+		ScrollBarThickness = 6,
+		ScrollingDirection = Enum.ScrollingDirection.XY,
+		Size = UDim2.new(1, -18, 1, -41),
+		Parent = row,
+	})
+	addCorner(scroller, 6)
+
+	local box = create("TextBox", {
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ClearTextOnFocus = false,
 		Font = options.Code == false and Enum.Font.Gotham or Enum.Font.Code,
 		MultiLine = true,
 		PlaceholderColor3 = Color3.fromRGB(92, 98, 108),
 		PlaceholderText = tostring(options.Placeholder or ""),
-		Position = UDim2.fromOffset(9, 32),
-		Size = UDim2.new(1, -18, 1, -41),
+		Position = UDim2.fromOffset(8, 8),
+		Size = UDim2.fromOffset(100, 100),
 		Text = tostring(options.Default or ""),
 		TextColor3 = Theme.Text,
 		TextSize = options.TextSize or 13,
 		TextWrapped = options.Wrap == true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
-		Parent = row,
+		Parent = scroller,
 	})
-	addCorner(box, 6)
-	addPadding(box, 10, 10, 9, 9)
 
-	local controller = { Object = box, Row = row }
+	local function updateCanvas()
+		if not scroller.Parent then
+			return
+		end
+
+		local minimumWidth = math.max(80, scroller.AbsoluteSize.X - 16)
+		local minimumHeight = math.max(80, scroller.AbsoluteSize.Y - 16)
+		local textBounds = box.TextBounds
+		local contentWidth = options.Wrap == true and minimumWidth
+			or math.max(minimumWidth, math.ceil(textBounds.X) + 20)
+		local contentHeight = math.max(minimumHeight, math.ceil(textBounds.Y) + 20)
+
+		box.Size = UDim2.fromOffset(contentWidth, contentHeight)
+		scroller.CanvasSize = UDim2.fromOffset(contentWidth + 16, contentHeight + 16)
+	end
+
+	box:GetPropertyChangedSignal("Text"):Connect(updateCanvas)
+	box:GetPropertyChangedSignal("TextBounds"):Connect(updateCanvas)
+	scroller:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCanvas)
+	task.defer(updateCanvas)
+
+	local controller = { Object = box, Row = row, Scroller = scroller }
 	function controller:Get()
 		return box.Text
 	end
 	function controller:Set(text)
 		box.Text = tostring(text or "")
+		task.defer(updateCanvas)
 	end
 	function controller:SetEditable(editable)
 		box.TextEditable = editable
