@@ -18,6 +18,7 @@ local function loadGrayUI()
 end
 
 local GrayUI = loadGrayUI()
+local UserInputService = game:GetService("UserInputService")
 
 local Window = GrayUI:CreateWindow({
 	Id = "GrayDecompiler",
@@ -301,6 +302,8 @@ local RuntimeStatus
 local ConstantsSection
 local UpvaluesSection
 local ProtosSection
+local AutoRefreshEnabled = false
+local RefreshingRuntime = false
 
 local function findClosure(target)
 	if type(target) == "function" then
@@ -371,7 +374,46 @@ local function addEditableValue(section, kind, index, name, value, applyFunction
 	})
 end
 
+local function collectClosures(rootClosure)
+	local closures = {
+		{
+			Closure = rootClosure,
+			Scope = "Root",
+		},
+	}
+	local seen = { [rootClosure] = true }
+	local cursor = 1
+
+	while cursor <= #closures and #closures < 64 do
+		local current = closures[cursor]
+		local protos = safeList(APIs.GetProtos, current.Closure)
+
+		for index, proto in ipairs(protos) do
+			if type(proto) == "function" and not seen[proto] then
+				seen[proto] = true
+				table.insert(closures, {
+					Closure = proto,
+					Scope = string.format("%s.Proto%d", current.Scope, index),
+				})
+				if #closures >= 64 then
+					break
+				end
+			end
+		end
+
+		cursor = cursor + 1
+	end
+
+	return closures
+end
+
 local function refreshRuntime()
+	if RefreshingRuntime then
+		return
+	end
+	RefreshingRuntime = true
+	local savedCanvasPosition = RuntimePage.Container.CanvasPosition
+
 	ConstantsSection:Clear()
 	UpvaluesSection:Clear()
 	ProtosSection:Clear()
@@ -379,6 +421,7 @@ local function refreshRuntime()
 	if not State.Target then
 		RuntimeStatus:Set("Decompile a resolved script path first.")
 		RuntimeStatus:SetColor(GrayUI.Theme.Danger)
+		RefreshingRuntime = false
 		return
 	end
 
@@ -387,18 +430,43 @@ local function refreshRuntime()
 	if not closure then
 		RuntimeStatus:Set(closureError)
 		RuntimeStatus:SetColor(GrayUI.Theme.Danger)
+		RefreshingRuntime = false
 		return
 	end
 
-	State.Constants = safeList(APIs.GetConstants, closure)
-	State.Upvalues = safeList(APIs.GetUpvalues, closure)
-	State.Protos = safeList(APIs.GetProtos, closure)
+	State.Constants = {}
+	State.Upvalues = {}
+	local closures = collectClosures(closure)
+	State.Protos = closures
+
+	for _, scope in ipairs(closures) do
+		local constants = safeList(APIs.GetConstants, scope.Closure)
+		for index, value in ipairs(constants) do
+			table.insert(State.Constants, {
+				Closure = scope.Closure,
+				Index = index,
+				Scope = scope.Scope,
+				Value = value,
+			})
+		end
+
+		local upvalues = safeList(APIs.GetUpvalues, scope.Closure)
+		for index, value in ipairs(upvalues) do
+			table.insert(State.Upvalues, {
+				Closure = scope.Closure,
+				Index = index,
+				Name = getUpvalueName(scope.Closure, index),
+				Scope = scope.Scope,
+				Value = value,
+			})
+		end
+	end
 
 	local message = string.format(
-		"Loaded %d constants, %d upvalues, and %d nested prototypes.",
+		"Loaded %d constants and %d upvalues across %d live closures.",
 		#State.Constants,
 		#State.Upvalues,
-		#State.Protos
+		#closures
 	)
 	RuntimeStatus:Set(message)
 	RuntimeStatus:SetColor(GrayUI.Theme.Success)
@@ -406,10 +474,10 @@ local function refreshRuntime()
 	if #State.Constants == 0 then
 		ConstantsSection:AddLabel("No constants returned, or getconstants is unavailable.")
 	else
-		for index, value in ipairs(State.Constants) do
-			addEditableValue(ConstantsSection, "Constant", index, "constant", value, function(itemIndex, newValue)
+		for _, entry in ipairs(State.Constants) do
+			addEditableValue(ConstantsSection, "Constant", entry.Index, entry.Scope, entry.Value, function(itemIndex, newValue)
 				assert(type(APIs.SetConstant) == "function", "setconstant is unavailable")
-				return APIs.SetConstant(closure, itemIndex, newValue)
+				return APIs.SetConstant(entry.Closure, itemIndex, newValue)
 			end)
 		end
 	end
@@ -417,19 +485,21 @@ local function refreshRuntime()
 	if #State.Upvalues == 0 then
 		UpvaluesSection:AddLabel("No upvalues returned, or getupvalues is unavailable.")
 	else
-		for index, value in ipairs(State.Upvalues) do
-			local upvalueName = getUpvalueName(closure, index)
-			addEditableValue(UpvaluesSection, "Upvalue", index, upvalueName, value, function(itemIndex, newValue)
+		for _, entry in ipairs(State.Upvalues) do
+			local displayName = string.format("%s · %s", entry.Scope, entry.Name)
+			addEditableValue(UpvaluesSection, "Upvalue", entry.Index, displayName, entry.Value, function(itemIndex, newValue)
 				assert(type(APIs.SetUpvalue) == "function", "setupvalue is unavailable")
-				return APIs.SetUpvalue(closure, itemIndex, newValue)
+				return APIs.SetUpvalue(entry.Closure, itemIndex, newValue)
 			end)
 		end
 	end
 
-	if #State.Protos == 0 then
+	if #closures <= 1 then
 		ProtosSection:AddLabel("No nested prototypes returned, or getprotos is unavailable.")
 	else
-		for index, proto in ipairs(State.Protos) do
+		for index = 2, #closures do
+			local scope = closures[index]
+			local proto = scope.Closure
 			local details = "function"
 			if type(APIs.GetInfo) == "function" then
 				local ok, info = pcall(APIs.GetInfo, proto)
@@ -442,9 +512,16 @@ local function refreshRuntime()
 					)
 				end
 			end
-			ProtosSection:AddLabel(string.format("Prototype #%d · %s", index, details))
+			ProtosSection:AddLabel(string.format("%s · %s", scope.Scope, details))
 		end
 	end
+
+	RefreshingRuntime = false
+	task.defer(function()
+		if RuntimePage.Container.Parent then
+			RuntimePage.Container.CanvasPosition = savedCanvasPosition
+		end
+	end)
 end
 
 local function decompileTarget()
@@ -549,6 +626,14 @@ RuntimeControlSection:AddButton({
 	Text = "Refresh Constants, Upvalues, and Prototypes",
 	Callback = refreshRuntime,
 })
+RuntimeControlSection:AddToggle({
+	Text = "Live refresh runtime values",
+	Default = false,
+	Callback = function(enabled)
+		AutoRefreshEnabled = enabled
+		Window:Notify(enabled and "Live runtime refresh enabled." or "Live runtime refresh disabled.", "neutral")
+	end,
+})
 RuntimeControlSection:AddLabel({
 	Text = "Editable types: nil, numbers, booleans, quoted strings, Vector2, Vector3, Color3, CFrame, Enum items, and @instance paths.",
 })
@@ -561,6 +646,17 @@ UpvaluesSection:AddLabel("Upvalues will appear after inspection.")
 
 ProtosSection = RuntimePage:AddSection("Nested Prototypes")
 ProtosSection:AddLabel("Prototype information will appear after inspection.")
+
+task.spawn(function()
+	while Window.ScreenGui.Parent do
+		task.wait(1.5)
+		if AutoRefreshEnabled
+			and State.Target
+			and not UserInputService:GetFocusedTextBox() then
+			refreshRuntime()
+		end
+	end
+end)
 
 local APISection = InformationPage:AddSection("Detected APIs")
 
