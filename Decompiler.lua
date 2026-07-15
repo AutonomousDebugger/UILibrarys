@@ -5,10 +5,6 @@ local GRAY_UI_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibr
 
 local function loadGrayUI()
 	local sharedEnvironment = type(getgenv) == "function" and getgenv() or _G
-	if type(sharedEnvironment.GrayUI) == "table" then
-		return sharedEnvironment.GrayUI
-	end
-
 	assert(type(loadstring) == "function", "loadstring is unavailable in this environment")
 	assert(type(game.HttpGet) == "function", "game:HttpGet is unavailable in this environment")
 	local source = game:HttpGet(GRAY_UI_URL)
