@@ -1,4 +1,5 @@
 local GrayUI = {}
+GrayUI.Version = "1.1.0"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
