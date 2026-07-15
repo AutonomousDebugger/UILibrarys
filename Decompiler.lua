@@ -492,6 +492,25 @@ TargetSection:AddButton({
 })
 
 TargetSection:AddButton({
+	Text = "Paste Clipboard Path",
+	Callback = function()
+		if type(getclipboard) ~= "function" then
+			Window:Notify("getclipboard is unavailable. Paste directly into the path box instead.", "error", 4)
+			return
+		end
+
+		local ok, clipboardText = pcall(getclipboard)
+		if not ok or type(clipboardText) ~= "string" or trim(clipboardText) == "" then
+			Window:Notify("The clipboard did not contain a path.", "error")
+			return
+		end
+
+		PathInput:Set(trim(clipboardText))
+		Window:Notify("Path pasted from clipboard.", "success")
+	end,
+})
+
+TargetSection:AddButton({
 	Text = "Resolve Path Only",
 	Callback = function()
 		local target, resolveError = resolvePath(PathInput:Get())
