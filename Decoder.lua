@@ -1,7 +1,7 @@
 -- Decoder GUI - all capture/replay logic is loaded from DecoderCore.lua.
 
 local GRAY_UI_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/GrayUI.lua?v=2"
-local CORE_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/DecoderCore.lua?v=6"
+local CORE_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/DecoderCore.lua?v=7"
 
 local function LoadLibrary(Url, Name)
 	assert(type(loadstring) == "function", "loadstring is unavailable")
@@ -316,4 +316,4 @@ BehaviorSection:AddButton({
 	end,
 })
 
-Window:Notify("Decoder 2.2 is capturing traffic.", "success")
+Window:Notify("Decoder 2.3 is capturing traffic.", "success")
