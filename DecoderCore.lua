@@ -26,6 +26,8 @@ local GetNamecallMethod = getnamecallmethod or ResolveApi("getnamecallmethod")
 local GetNamecallName = type(GetNamecallMethod) == "function" and "getnamecallmethod" or nil
 local HookFunction = hookfunction or ResolveApi("hookfunction")
 local HookFunctionName = type(HookFunction) == "function" and "hookfunction" or nil
+local GetCallingScript = getcallingscript or ResolveApi("getcallingscript")
+local GetCallingScriptName = type(GetCallingScript) == "function" and "getcallingscript" or nil
 local NewCClosure = newcclosure or ResolveApi("newcclosure") or function(Callback)
 	return Callback
 end
@@ -108,21 +110,18 @@ local function InstallNamecallHook()
 
 		local Arguments = table.pack(...)
 		local CanonicalMethod = IsFire and "FireServer" or "InvokeServer"
-		if IsFire and NamecallBus.Callback then
-			task.defer(NamecallBus.Callback, Self, CanonicalMethod, Arguments, nil, "__namecall")
+		local CallingScript
+		if GetCallingScript then
+			local CallingSuccess, CallingResult = pcall(GetCallingScript)
+			CallingScript = CallingSuccess and CallingResult or nil
+		end
+		if NamecallBus.Callback then
+			task.defer(NamecallBus.Callback, Self, CanonicalMethod, Arguments, nil, "__namecall", CallingScript)
 		end
 
 		local Thread = EnterNamecall()
-		local ProtectedResults = table.pack(pcall(OldNamecall, Self, table.unpack(Arguments, 1, Arguments.n)))
+		local Results = table.pack(OldNamecall(Self, table.unpack(Arguments, 1, Arguments.n)))
 		LeaveNamecall(Thread)
-		if not ProtectedResults[1] then
-			error(ProtectedResults[2], 0)
-		end
-		local Results = table.pack(table.unpack(ProtectedResults, 2, ProtectedResults.n))
-
-		if IsInvoke and NamecallBus.Callback then
-			task.defer(NamecallBus.Callback, Self, CanonicalMethod, Arguments, Results, "__namecall")
-		end
 		return table.unpack(Results, 1, Results.n)
 	end))
 
@@ -148,7 +147,12 @@ local function InstallMethodHooks()
 		OldFireServer = HookFunction(SampleEvent.FireServer, NewCClosure(function(Self, ...)
 			local Arguments = table.pack(...)
 			if not InNamecall() and MethodBus.Callback then
-				task.defer(MethodBus.Callback, Self, "FireServer", Arguments, nil, "hookfunction.FireServer")
+				local CallingScript
+				if GetCallingScript then
+					local CallingSuccess, CallingResult = pcall(GetCallingScript)
+					CallingScript = CallingSuccess and CallingResult or nil
+				end
+				task.defer(MethodBus.Callback, Self, "FireServer", Arguments, nil, "hookfunction.FireServer", CallingScript)
 			end
 			return OldFireServer(Self, table.unpack(Arguments, 1, Arguments.n))
 		end))
@@ -160,7 +164,12 @@ local function InstallMethodHooks()
 			local Arguments = table.pack(...)
 			local Results = table.pack(OldInvokeServer(Self, table.unpack(Arguments, 1, Arguments.n)))
 			if not InNamecall() and MethodBus.Callback then
-				task.defer(MethodBus.Callback, Self, "InvokeServer", Arguments, Results, "hookfunction.InvokeServer")
+				local CallingScript
+				if GetCallingScript then
+					local CallingSuccess, CallingResult = pcall(GetCallingScript)
+					CallingScript = CallingSuccess and CallingResult or nil
+				end
+				task.defer(MethodBus.Callback, Self, "InvokeServer", Arguments, Results, "hookfunction.InvokeServer", CallingScript)
 			end
 			return table.unpack(Results, 1, Results.n)
 		end))
@@ -187,6 +196,60 @@ local function Quote(Value)
 	return string.format("%q", tostring(Value))
 end
 
+local ReservedWords = {
+	["and"] = true,
+	["break"] = true,
+	["do"] = true,
+	["else"] = true,
+	["elseif"] = true,
+	["end"] = true,
+	["false"] = true,
+	["for"] = true,
+	["function"] = true,
+	["if"] = true,
+	["in"] = true,
+	["local"] = true,
+	["nil"] = true,
+	["not"] = true,
+	["or"] = true,
+	["repeat"] = true,
+	["return"] = true,
+	["then"] = true,
+	["true"] = true,
+	["until"] = true,
+	["while"] = true,
+}
+
+local function IsIdentifier(Value)
+	return type(Value) == "string"
+		and Value:match("^[%a_][%w_]*$") ~= nil
+		and not ReservedWords[Value]
+end
+
+local function ChildExpression(ParentExpression, Object)
+	local Parent = Object.Parent
+	if Parent then
+		local Children = Parent:GetChildren()
+		local SameNameCount = 0
+		local ObjectIndex
+		for Index, Child in ipairs(Children) do
+			if Child.Name == Object.Name then
+				SameNameCount = SameNameCount + 1
+			end
+			if Child == Object then
+				ObjectIndex = Index
+			end
+		end
+		if SameNameCount > 1 and ObjectIndex then
+			return ParentExpression .. ":GetChildren()[" .. tostring(ObjectIndex) .. "]"
+		end
+	end
+	if IsIdentifier(Object.Name) then
+		return ParentExpression .. "." .. Object.Name
+	end
+	return ParentExpression .. "[" .. Quote(Object.Name) .. "]"
+end
+
 function DecoderCore.GetInstancePath(Object)
 	if typeof(Object) ~= "Instance" then
 		return "nil --[[not an Instance]]"
@@ -204,14 +267,18 @@ function DecoderCore.GetInstancePath(Object)
 	local Expression = "game"
 	for Index, Item in ipairs(Chain) do
 		if Index == 1 then
-			local Success, Service = pcall(game.GetService, game, Item.Name)
-			if Success and Service == Item then
-				Expression = "game:GetService(" .. Quote(Item.Name) .. ")"
+			if Item == workspace then
+				Expression = "workspace"
 			else
-				Expression = Expression .. "[" .. Quote(Item.Name) .. "]"
+				local Success, Service = pcall(game.GetService, game, Item.Name)
+				if Success and Service == Item then
+				Expression = "game:GetService(" .. Quote(Item.Name) .. ")"
+				else
+					Expression = ChildExpression(Expression, Item)
+				end
 			end
 		else
-			Expression = Expression .. "[" .. Quote(Item.Name) .. "]"
+			Expression = ChildExpression(Expression, Item)
 		end
 	end
 	return Expression
@@ -310,11 +377,16 @@ function DecoderCore.Serialize(Value, Depth, Seen)
 
 	local Lines = { "{" }
 	for _, Key in ipairs(Keys) do
-		local KeyText = "[" .. DecoderCore.Serialize(Key, Depth + 1, Seen) .. "]"
+		local KeyText
+		if type(Key) == "string" and IsIdentifier(Key) then
+			KeyText = Key
+		else
+			KeyText = "[" .. DecoderCore.Serialize(Key, Depth + 1, Seen) .. "]"
+		end
 		local ValueText = DecoderCore.Serialize(Value[Key], Depth + 1, Seen)
-		table.insert(Lines, string.rep("\t", Depth + 1) .. KeyText .. " = " .. ValueText .. ",")
+		table.insert(Lines, string.rep("    ", Depth + 1) .. KeyText .. " = " .. ValueText .. ",")
 	end
-	table.insert(Lines, string.rep("\t", Depth) .. "}")
+	table.insert(Lines, string.rep("    ", Depth) .. "}")
 	Seen[Value] = nil
 	return table.concat(Lines, "\n")
 end
@@ -324,29 +396,28 @@ function DecoderCore.SerializeArguments(Arguments, VariableName)
 	local Count = Arguments.n or #Arguments
 	for Index = 1, Count do
 		local Suffix = Index < Count and "," or ""
-		local Text = DecoderCore.Serialize(Arguments[Index], 1, {}):gsub("\n", "\n\t")
-		table.insert(Lines, "\t" .. Text .. Suffix)
+		local Text = DecoderCore.Serialize(Arguments[Index], 1, {})
+		table.insert(Lines, "    " .. Text .. Suffix)
 	end
 	table.insert(Lines, ")")
 	return table.concat(Lines, "\n")
 end
 
 function DecoderCore.BuildOutgoingPacket(Entry)
+	local CallingScriptText = Entry.CallingScript and DecoderCore.GetInstancePath(Entry.CallingScript) or "Unknown"
 	local Lines = {
-		"-- Decoder outgoing packet",
-		"-- Remote: " .. Entry.Path,
-		"-- Method: " .. Entry.Method,
-		"-- Captured: x" .. tostring(Entry.Count),
-		DecoderCore.SerializeArguments(Entry.Arguments, "args"),
-		"",
-		"local remote = " .. DecoderCore.GetInstancePath(Entry.Remote),
+		"-- Calling Script: " .. CallingScriptText,
+		"-- Captured: x" .. tostring(Entry.Count) .. " via " .. tostring(Entry.Source),
+		"local Event = " .. DecoderCore.GetInstancePath(Entry.Remote),
+		"Event:" .. Entry.Method .. "(",
 	}
-	if Entry.Method == "InvokeServer" then
-		table.insert(Lines, "local results = table.pack(remote:InvokeServer(table.unpack(args, 1, args.n)))")
-		table.insert(Lines, "return table.unpack(results, 1, results.n)")
-	else
-		table.insert(Lines, "remote:FireServer(table.unpack(args, 1, args.n))")
+	local Count = Entry.Arguments.n or #Entry.Arguments
+	for Index = 1, Count do
+		local Suffix = Index < Count and "," or ""
+		local ValueText = DecoderCore.Serialize(Entry.Arguments[Index], 1, {})
+		table.insert(Lines, "    " .. ValueText .. Suffix)
 	end
+	table.insert(Lines, ")")
 	return table.concat(Lines, "\n")
 end
 
@@ -382,7 +453,7 @@ local function Emit(Entry, IsNew)
 	end
 end
 
-function DecoderCore.Record(Direction, Remote, Method, Arguments, Results, Source)
+function DecoderCore.Record(Direction, Remote, Method, Arguments, Results, Source, CallingScript)
 	if not State.Active then
 		return
 	end
@@ -418,6 +489,7 @@ function DecoderCore.Record(Direction, Remote, Method, Arguments, Results, Sourc
 	Entry.Arguments = Arguments
 	Entry.Results = Results
 	Entry.Source = Source
+	Entry.CallingScript = CallingScript
 	Entry.LastClock = os.clock()
 	Entry.UniqueCount = StoreCount(Store)
 	if Direction == "Outgoing" then
@@ -428,8 +500,8 @@ function DecoderCore.Record(Direction, Remote, Method, Arguments, Results, Sourc
 	Emit(Entry, IsNew)
 end
 
-local function OutgoingCallback(Remote, Method, Arguments, Results, Source)
-	DecoderCore.Record("Outgoing", Remote, Method, Arguments, Results, Source)
+local function OutgoingCallback(Remote, Method, Arguments, Results, Source, CallingScript)
+	DecoderCore.Record("Outgoing", Remote, Method, Arguments, Results, Source, CallingScript)
 end
 NamecallBus.Callback = OutgoingCallback
 MethodBus.Callback = OutgoingCallback
@@ -576,6 +648,7 @@ function DecoderCore.GetApiStatus()
 		MethodHooksReady = State.MethodHooksReady == true,
 		MethodHooksStatus = State.MethodHooksStatus or "not started",
 		HookFunction = HookFunctionName or "unavailable",
+		GetCallingScript = GetCallingScriptName or "unavailable",
 	}
 end
 
