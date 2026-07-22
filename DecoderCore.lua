@@ -2,7 +2,7 @@
 -- No GUI code belongs in this file.
 
 local DecoderCore = {
-	Version = "2.2.0",
+	Version = "2.3.0",
 }
 
 local Environment = type(getgenv) == "function" and getgenv() or _G
@@ -49,7 +49,7 @@ DecoderCore.State = State
 
 local PreviousNamecallBus = rawget(Environment, "__DecoderCoreNamecallBus")
 local NamecallBus = PreviousNamecallBus
-if type(NamecallBus) == "table" and NamecallBus.Version ~= 3 then
+if type(NamecallBus) == "table" and NamecallBus.Version ~= 4 then
 	-- Older Decoder hooks scheduled live Instances with task.defer. Their hook
 	-- closure reads this field dynamically, so clearing it safely retires them.
 	NamecallBus.Callback = nil
@@ -57,11 +57,10 @@ if type(NamecallBus) == "table" and NamecallBus.Version ~= 3 then
 end
 if type(NamecallBus) ~= "table" then
 	NamecallBus = {
-		Version = 3,
+		Version = 4,
 		Installed = false,
 		Callback = nil,
 		OldNamecall = nil,
-		Depth = setmetatable({}, { __mode = "k" }),
 	}
 	Environment.__DecoderCoreNamecallBus = NamecallBus
 end
@@ -83,21 +82,6 @@ if type(MethodBus) ~= "table" then
 	Environment.__DecoderCoreMethodBus = MethodBus
 end
 
-local function CurrentThread()
-	return coroutine.running() or NamecallBus
-end
-
-local function EnterNamecall()
-	local Thread = CurrentThread()
-	NamecallBus.Depth[Thread] = (NamecallBus.Depth[Thread] or 0) + 1
-	return Thread
-end
-
-local function LeaveNamecall(Thread)
-	local Depth = (NamecallBus.Depth[Thread] or 1) - 1
-	NamecallBus.Depth[Thread] = Depth > 0 and Depth or nil
-end
-
 local function InstallNamecallHook()
 	if NamecallBus.Installed then
 		return true, "already installed"
@@ -109,16 +93,17 @@ local function InstallNamecallHook()
 	local OldNamecall
 	OldNamecall = HookMetamethod(game, "__namecall", NewCClosure(function(Self, ...)
 		local Method = GetNamecallMethod()
+		local Arguments = table.pack(...)
 		local LowerMethod = type(Method) == "string" and string.lower(Method) or ""
 		local ClassName = typeof(Self) == "Instance" and Self.ClassName or ""
-		local IsFire = LowerMethod == "fireserver" and ClassName == "RemoteEvent"
+		local IsFire = LowerMethod == "fireserver"
+			and (ClassName == "RemoteEvent" or ClassName == "UnreliableRemoteEvent")
 		local IsInvoke = LowerMethod == "invokeserver" and ClassName == "RemoteFunction"
 
 		if not IsFire and not IsInvoke then
-			return OldNamecall(Self, ...)
+			return OldNamecall(Self, table.unpack(Arguments, 1, Arguments.n))
 		end
 
-		local Arguments = table.pack(...)
 		local CanonicalMethod = IsFire and "FireServer" or "InvokeServer"
 		local CallingScript
 		if GetCallingScript then
@@ -129,9 +114,7 @@ local function InstallNamecallHook()
 		-- Forward the untouched call before doing any path/GUI work. Formatting an
 		-- Instance can perform nested namecalls, which must never happen while the
 		-- executor is still preparing to forward FireServer/InvokeServer.
-		local Thread = EnterNamecall()
 		local Results = table.pack(OldNamecall(Self, table.unpack(Arguments, 1, Arguments.n)))
-		LeaveNamecall(Thread)
 		if NamecallBus.Callback then
 			-- Keep live Instances on this capability-bearing hook thread.
 			pcall(NamecallBus.Callback, Self, CanonicalMethod, Arguments, IsInvoke and Results or nil, "__namecall", CallingScript)
@@ -536,7 +519,7 @@ local function Observe(Object)
 	if typeof(Object) ~= "Instance" then
 		return
 	end
-	if Object.ClassName == "RemoteEvent" then
+	if Object.ClassName == "RemoteEvent" or Object.ClassName == "UnreliableRemoteEvent" then
 		ObserveRemoteEvent(Object)
 	elseif Object.ClassName == "RemoteFunction" then
 		ObserveRemoteFunction(Object)
