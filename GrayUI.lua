@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "2.1.6"
+GrayUI.Version = "2.1.7"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -1338,7 +1338,7 @@ function GrayUI:CreateWindow(options)
 		Active = true,
 		AnchorPoint = Vector2.new(1, 0.5),
 		AutoButtonColor = false,
-		BackgroundColor3 = Color3.fromRGB(108, 114, 124),
+		BackgroundColor3 = Theme.Control,
 		BackgroundTransparency = 0,
 		BorderSizePixel = 0,
 		Font = Enum.Font.Code,
@@ -1351,12 +1351,8 @@ function GrayUI:CreateWindow(options)
 		Parent = resizeFooter,
 	})
 	addCorner(resizeHandle, 10)
-	addStroke(resizeHandle, Color3.fromRGB(190, 195, 204), 0.35, 1)
-	bindHover(
-		resizeHandle,
-		Color3.fromRGB(108, 114, 124),
-		Color3.fromRGB(136, 143, 154)
-	)
+	addStroke(resizeHandle, Theme.Stroke, 0.25, 1)
+	bindHover(resizeHandle, Theme.Control, Theme.ControlHover)
 
 	local reopen = create("TextButton", {
 		Active = true,
