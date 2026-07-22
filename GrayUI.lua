@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "2.1.7"
+GrayUI.Version = "2.1.8"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -471,13 +471,14 @@ function Section:AddTextArea(options)
 		CanvasSize = UDim2.new(),
 		ClipsDescendants = true,
 		ElasticBehavior = Enum.ElasticBehavior.Never,
-		HorizontalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
-		Position = UDim2.fromOffset(9, 32),
+		HorizontalScrollBarInset = Enum.ScrollBarInset.Always,
+		Position = UDim2.fromOffset(10, 33),
 		ScrollBarImageColor3 = Theme.Stroke,
-		ScrollBarThickness = 6,
+		ScrollBarImageTransparency = 0.15,
+		ScrollBarThickness = 4,
 		ScrollingDirection = Enum.ScrollingDirection.XY,
-		Size = UDim2.new(1, -18, 1, -41),
-		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+		Size = UDim2.new(1, -20, 1, -43),
+		VerticalScrollBarInset = Enum.ScrollBarInset.Always,
 		Parent = row,
 	})
 	addCorner(scroller, 6)
@@ -870,7 +871,9 @@ function Window:_UpdateTabLayout()
 		finalWidth = finalWidth + width
 	end
 
-	self.TabBar.ScrollBarThickness = overflow and 2 or 0
+	-- Horizontal wheel/touch scrolling still works; keeping the native bar hidden
+	-- prevents its end-cap images from escaping the rounded tab viewport.
+	self.TabBar.ScrollBarThickness = 0
 	self.TabBar.CanvasSize = overflow
 		and UDim2.fromOffset(finalWidth + self.TabSidePadding * 2, 0)
 		or UDim2.new()
@@ -961,11 +964,13 @@ function Window:AddTab(name, tabOptions)
 		CanvasSize = UDim2.new(),
 		ClipsDescendants = true,
 		ElasticBehavior = Enum.ElasticBehavior.Never,
+		Position = UDim2.fromOffset(2, 3),
 		ScrollBarImageColor3 = Theme.Stroke,
-		ScrollBarThickness = 3,
+		ScrollBarImageTransparency = 0.15,
+		ScrollBarThickness = 4,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
-		Size = UDim2.fromScale(1, 1),
-		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+		Size = UDim2.new(1, -8, 1, -6),
+		VerticalScrollBarInset = Enum.ScrollBarInset.Always,
 		Visible = false,
 		Parent = self.PageHolder,
 	})
@@ -1287,7 +1292,7 @@ function GrayUI:CreateWindow(options)
 		CanvasSize = UDim2.new(),
 		ClipsDescendants = true,
 		ElasticBehavior = Enum.ElasticBehavior.Never,
-		HorizontalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+		HorizontalScrollBarInset = Enum.ScrollBarInset.Always,
 		Position = UDim2.fromOffset(10, 52),
 		ScrollBarThickness = 0,
 		ScrollingDirection = Enum.ScrollingDirection.X,
@@ -1326,7 +1331,8 @@ function GrayUI:CreateWindow(options)
 	})
 
 	local pageHolder = create("Frame", {
-		BackgroundTransparency = 1,
+		BackgroundColor3 = Theme.Background,
+		BackgroundTransparency = 0.02,
 		ClipsDescendants = true,
 		Position = UDim2.fromOffset(12, 102),
 		Size = UDim2.new(1, -24, 1, -154),
