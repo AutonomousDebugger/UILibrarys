@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "2.1.3"
+GrayUI.Version = "2.1.4"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -1338,21 +1338,29 @@ function GrayUI:CreateWindow(options)
 		Active = true,
 		AnchorPoint = Vector2.new(1, 0.5),
 		AutoButtonColor = false,
-		BackgroundColor3 = Theme.PanelLight,
-		BackgroundTransparency = 0.2,
+		BackgroundColor3 = Theme.Control,
+		BackgroundTransparency = 0,
 		BorderSizePixel = 0,
 		Font = Enum.Font.GothamBold,
-		Position = UDim2.new(1, -7, 0.5, 0),
-		Size = UDim2.fromOffset(104, 26),
+		Position = UDim2.new(1, -6, 0.5, 0),
+		Size = UDim2.fromOffset(112, 28),
 		Text = "RESIZE  ↘",
 		TextColor3 = Theme.Text,
-		TextSize = 9,
+		TextSize = 10,
 		ZIndex = 50,
 		Parent = resizeFooter,
 	})
-	addCorner(resizeHandle, Defaults.ControlRadius)
-	addStroke(resizeHandle, Theme.Stroke, 0.2)
-	bindHover(resizeHandle, Theme.PanelLight, Theme.ControlHover)
+	addCorner(resizeHandle, 14)
+	addStroke(resizeHandle, Theme.Accent, 0.55, 1)
+	create("UIGradient", {
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 58, 65)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(31, 34, 39)),
+		}),
+		Rotation = 90,
+		Parent = resizeHandle,
+	})
+	bindHover(resizeHandle, Theme.Control, Theme.ControlHover)
 
 	local reopen = create("TextButton", {
 		Active = true,
