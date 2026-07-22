@@ -2,7 +2,7 @@
 -- No GUI code belongs in this file.
 
 local DecoderCore = {
-	Version = "2.0.0",
+	Version = "2.1.0",
 }
 
 local Environment = type(getgenv) == "function" and getgenv() or _G
@@ -116,7 +116,9 @@ local function InstallNamecallHook()
 			CallingScript = CallingSuccess and CallingResult or nil
 		end
 		if NamecallBus.Callback then
-			task.defer(NamecallBus.Callback, Self, CanonicalMethod, Arguments, nil, "__namecall", CallingScript)
+			-- Keep live Instances on the hook's current thread. Roblox capability
+			-- access is not inherited by task.defer/task.spawn threads.
+			pcall(NamecallBus.Callback, Self, CanonicalMethod, Arguments, nil, "__namecall", CallingScript)
 		end
 
 		local Thread = EnterNamecall()
@@ -152,7 +154,7 @@ local function InstallMethodHooks()
 					local CallingSuccess, CallingResult = pcall(GetCallingScript)
 					CallingScript = CallingSuccess and CallingResult or nil
 				end
-				task.defer(MethodBus.Callback, Self, "FireServer", Arguments, nil, "hookfunction.FireServer", CallingScript)
+				pcall(MethodBus.Callback, Self, "FireServer", Arguments, nil, "hookfunction.FireServer", CallingScript)
 			end
 			return OldFireServer(Self, table.unpack(Arguments, 1, Arguments.n))
 		end))
@@ -169,7 +171,7 @@ local function InstallMethodHooks()
 					local CallingSuccess, CallingResult = pcall(GetCallingScript)
 					CallingScript = CallingSuccess and CallingResult or nil
 				end
-				task.defer(MethodBus.Callback, Self, "InvokeServer", Arguments, Results, "hookfunction.InvokeServer", CallingScript)
+				pcall(MethodBus.Callback, Self, "InvokeServer", Arguments, Results, "hookfunction.InvokeServer", CallingScript)
 			end
 			return table.unpack(Results, 1, Results.n)
 		end))
@@ -449,7 +451,8 @@ end
 
 local function Emit(Entry, IsNew)
 	for Listener in pairs(State.Listeners) do
-		task.spawn(Listener, Entry, IsNew)
+		-- Listeners must run before this capability-bearing thread returns.
+		pcall(Listener, Entry, IsNew)
 	end
 end
 
@@ -529,12 +532,16 @@ local function ObserveRemoteEvent(Remote)
 	end
 end
 
-local function ObserveRemoteFunction(Remote)
-	State.ObservedRemotes[Remote] = true
+local function HookRemoteFunctionCallback(Remote)
 	if not HookFunction then
 		return
 	end
-	local Callback = Remote.OnClientInvoke
+	local ReadSuccess, Callback = pcall(function()
+		return Remote.OnClientInvoke
+	end)
+	if not ReadSuccess then
+		return
+	end
 	if type(Callback) ~= "function" or State.HookedInvokeCallbacks[Callback] then
 		return
 	end
@@ -544,7 +551,7 @@ local function ObserveRemoteFunction(Remote)
 		OldCallback = HookFunction(Callback, function(...)
 			local Arguments = table.pack(...)
 			local Results = table.pack(OldCallback(table.unpack(Arguments, 1, Arguments.n)))
-			task.defer(DecoderCore.Record, "Incoming", Remote, "OnClientInvoke", Arguments, Results, "OnClientInvoke")
+			pcall(DecoderCore.Record, "Incoming", Remote, "OnClientInvoke", Arguments, Results, "OnClientInvoke")
 			return table.unpack(Results, 1, Results.n)
 		end)
 		return OldCallback
@@ -552,6 +559,25 @@ local function ObserveRemoteFunction(Remote)
 	if Success and type(Result) == "function" then
 		State.HookedInvokeCallbacks[Callback] = true
 	end
+end
+
+local function ObserveRemoteFunction(Remote)
+	if State.ObservedRemotes[Remote] then
+		return
+	end
+	State.ObservedRemotes[Remote] = true
+
+	-- Watch for games that assign OnClientInvoke after Decoder starts. This
+	-- keeps the work on an engine callback instead of a capability-losing task.
+	local WatchSuccess, Connection = pcall(function()
+		return Remote:GetPropertyChangedSignal("OnClientInvoke"):Connect(function()
+			HookRemoteFunctionCallback(Remote)
+		end)
+	end)
+	if WatchSuccess and Connection then
+		table.insert(State.Connections, Connection)
+	end
+	HookRemoteFunctionCallback(Remote)
 end
 
 local function Observe(Object)
@@ -587,22 +613,11 @@ function DecoderCore.Start()
 	State.MethodHooksStatus = MethodCallOk and tostring(MethodDetails) or tostring(MethodInstalled)
 
 	for _, Object in ipairs(game:GetDescendants()) do
-		Observe(Object)
+		pcall(Observe, Object)
 	end
-	table.insert(State.Connections, game.DescendantAdded:Connect(Observe))
-
-	task.spawn(function()
-		while State.Active do
-			task.wait(1.5)
-			if HookFunction then
-				for Remote in pairs(State.ObservedRemotes) do
-					if Remote.Parent and Remote.ClassName == "RemoteFunction" then
-						ObserveRemoteFunction(Remote)
-					end
-				end
-			end
-		end
-	end)
+	table.insert(State.Connections, game.DescendantAdded:Connect(function(Object)
+		pcall(Observe, Object)
+	end))
 	return State.NamecallReady or State.MethodHooksReady
 end
 
