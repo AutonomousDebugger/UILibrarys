@@ -1,7 +1,7 @@
 -- Decoder GUI - all capture/replay logic is loaded from DecoderCore.lua.
 
 local GRAY_UI_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/GrayUI.lua?v=2"
-local CORE_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/DecoderCore.lua?v=2"
+local CORE_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/DecoderCore.lua?v=3"
 
 local function LoadLibrary(Url, Name)
 	assert(type(loadstring) == "function", "loadstring is unavailable")
@@ -297,6 +297,10 @@ ApiSection:AddLabel({
 ApiSection:AddLabel({
 	Text = "Clipboard · " .. tostring(ClipboardName or "unavailable"),
 	Color = SetClipboard and GrayUI.Theme.Success or GrayUI.Theme.Muted,
+})
+ApiSection:AddLabel({
+	Text = "Calling script · " .. tostring(ApiStatus.GetCallingScript),
+	Color = ApiStatus.GetCallingScript ~= "unavailable" and GrayUI.Theme.Success or GrayUI.Theme.Muted,
 })
 
 local BehaviorSection = InformationPage:AddSection("Behavior")
