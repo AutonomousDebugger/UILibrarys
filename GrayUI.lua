@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "2.1.2"
+GrayUI.Version = "2.1.3"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -118,6 +118,13 @@ local function inputPosition2(input)
 	return Vector2.new(position.X, position.Y)
 end
 
+local function pointerPosition(input, mode)
+	if mode == "Mouse" then
+		return UserInputService:GetMouseLocation()
+	end
+	return inputPosition2(input)
+end
+
 local function isTextObject(object)
 	return object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox")
 end
@@ -199,7 +206,9 @@ local function makeDraggable(handle, target)
 	local dragMode
 	local touchInput
 	local dragStart
-	local startCenter
+	local startPosition
+	local startTopLeft
+	local startSize
 
 	handle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -207,11 +216,10 @@ local function makeDraggable(handle, target)
 			dragging = true
 			dragMode = input.UserInputType == Enum.UserInputType.Touch and "Touch" or "Mouse"
 			touchInput = dragMode == "Touch" and input or nil
-			dragStart = inputPosition2(input)
-			startCenter = Vector2.new(
-				target.AbsolutePosition.X + target.AbsoluteSize.X * target.AnchorPoint.X,
-				target.AbsolutePosition.Y + target.AbsoluteSize.Y * target.AnchorPoint.Y
-			)
+			dragStart = pointerPosition(input, dragMode)
+			startPosition = target.Position
+			startTopLeft = target.AbsolutePosition
+			startSize = target.AbsoluteSize
 
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
@@ -229,20 +237,23 @@ local function makeDraggable(handle, target)
 		local isTouchMove = dragMode == "Touch" and input == touchInput
 
 		if dragging and (isMouseMove or isTouchMove) then
-			local delta = inputPosition2(input) - dragStart
+			local delta = pointerPosition(input, dragMode) - dragStart
 			local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
 				or Vector2.new(1920, 1080)
-			local halfWidth = target.AbsoluteSize.X * target.AnchorPoint.X
-			local halfHeight = target.AbsoluteSize.Y * target.AnchorPoint.Y
-			local center = startCenter + delta
-			local minimumX = halfWidth + 4
-			local maximumX = math.max(minimumX, viewport.X - (target.AbsoluteSize.X - halfWidth) - 4)
-			local minimumY = halfHeight + 4
-			local maximumY = math.max(minimumY, viewport.Y - (target.AbsoluteSize.Y - halfHeight) - 4)
+			local desiredTopLeft = startTopLeft + delta
+			local maximumX = math.max(4, viewport.X - startSize.X - 4)
+			local maximumY = math.max(4, viewport.Y - startSize.Y - 4)
+			local clampedTopLeft = Vector2.new(
+				math.clamp(desiredTopLeft.X, 4, maximumX),
+				math.clamp(desiredTopLeft.Y, 4, maximumY)
+			)
+			local appliedDelta = clampedTopLeft - startTopLeft
 
-			target.Position = UDim2.fromOffset(
-				math.clamp(center.X, minimumX, maximumX),
-				math.clamp(center.Y, minimumY, maximumY)
+			target.Position = UDim2.new(
+				startPosition.X.Scale,
+				startPosition.X.Offset + appliedDelta.X,
+				startPosition.Y.Scale,
+				startPosition.Y.Offset + appliedDelta.Y
 			)
 		end
 	end)
@@ -255,6 +266,7 @@ local function makeResizable(handle, target, minimum, maximum)
 	local resizeStart
 	local startSize
 	local startTopLeft
+	local startPosition
 
 	handle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -262,9 +274,10 @@ local function makeResizable(handle, target, minimum, maximum)
 			resizing = true
 			resizeMode = input.UserInputType == Enum.UserInputType.Touch and "Touch" or "Mouse"
 			touchInput = resizeMode == "Touch" and input or nil
-			resizeStart = inputPosition2(input)
+			resizeStart = pointerPosition(input, resizeMode)
 			startSize = target.AbsoluteSize
 			startTopLeft = target.AbsolutePosition
+			startPosition = target.Position
 
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
@@ -282,7 +295,7 @@ local function makeResizable(handle, target, minimum, maximum)
 		local isTouchMove = resizeMode == "Touch" and input == touchInput
 
 		if resizing and (isMouseMove or isTouchMove) then
-			local delta = inputPosition2(input) - resizeStart
+			local delta = pointerPosition(input, resizeMode) - resizeStart
 			local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
 				or Vector2.new(1920, 1080)
 			local maximumWidth = math.max(minimum.X, math.min(maximum.X, viewport.X - startTopLeft.X - 4))
@@ -290,9 +303,11 @@ local function makeResizable(handle, target, minimum, maximum)
 			local width = math.clamp(startSize.X + delta.X, minimum.X, maximumWidth)
 			local height = math.clamp(startSize.Y + delta.Y, minimum.Y, maximumHeight)
 			target.Size = UDim2.fromOffset(width, height)
-			target.Position = UDim2.fromOffset(
-				startTopLeft.X + width * target.AnchorPoint.X,
-				startTopLeft.Y + height * target.AnchorPoint.Y
+			target.Position = UDim2.new(
+				startPosition.X.Scale,
+				startPosition.X.Offset + (width - startSize.X) * target.AnchorPoint.X,
+				startPosition.Y.Scale,
+				startPosition.Y.Offset + (height - startSize.Y) * target.AnchorPoint.Y
 			)
 		end
 	end)
