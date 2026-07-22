@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "2.0.0"
+GrayUI.Version = "2.1.0"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -20,15 +20,15 @@ local Theme = {
 }
 
 local Defaults = {
-	WindowRadius = 14,
-	SectionRadius = 11,
-	ControlRadius = 8,
-	TabRadius = 8,
+	WindowRadius = 16,
+	SectionRadius = 12,
+	ControlRadius = 9,
+	TabRadius = 10,
 	TabSpacing = 6,
 	TabMinimumWidth = 82,
 	TabMaximumWidth = 190,
-	MinTextScale = 0.82,
-	MaxTextScale = 1.35,
+	MinTextScale = 0.78,
+	MaxTextScale = 1.5,
 }
 
 GrayUI.Theme = Theme
@@ -1077,6 +1077,19 @@ function Window:SetSize(size, animated)
 	return clamped
 end
 
+function Window:CycleSize()
+	if #self.SizePresets == 0 then
+		return self:GetSize()
+	end
+	self.SizePresetIndex = self.SizePresetIndex % #self.SizePresets + 1
+	local preset = self.SizePresets[self.SizePresetIndex]
+	local size = preset.Size or preset
+	if self.SizeButton then
+		self.SizeButton.Text = string.upper(tostring(preset.Name or "SIZE"))
+	end
+	return self:SetSize(size, true)
+end
+
 function Window:SetTextScaling(enabled)
 	self.Typography:SetEnabled(enabled)
 end
@@ -1137,6 +1150,15 @@ function GrayUI:CreateWindow(options)
 		math.min(requestedMinimum.Y, initialSize.Y)
 	)
 	local maximum = options.MaxSize or Vector2.new(1200, 850)
+	local largeSize = Vector2.new(
+		math.min(maximum.X, math.max(initialSize.X, math.floor(initialSize.X * 1.25 + 0.5))),
+		math.min(maximum.Y, math.max(initialSize.Y, math.floor(initialSize.Y * 1.25 + 0.5)))
+	)
+	local sizePresets = options.SizePresets or {
+		{ Name = "COMPACT", Size = minimum },
+		{ Name = "DEFAULT", Size = initialSize },
+		{ Name = "LARGE", Size = largeSize },
+	}
 	local main = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundColor3 = Theme.Background,
@@ -1160,28 +1182,57 @@ function GrayUI:CreateWindow(options)
 		Size = UDim2.new(1, 0, 0, 48),
 		Parent = main,
 	})
+	addCorner(titleBar, options.CornerRadius or Defaults.WindowRadius)
+	local dragZone = create("TextButton", {
+		Active = true,
+		AutoButtonColor = false,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, -120, 1, 0),
+		Text = "",
+		ZIndex = 4,
+		Parent = titleBar,
+	})
 	create("TextLabel", {
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
 		Position = UDim2.fromOffset(16, 0),
-		Size = UDim2.new(1, -112, 1, 0),
+		Size = UDim2.new(1, -270, 1, 0),
 		Text = tostring(options.Title or "Gray UI"),
 		TextColor3 = Theme.Text,
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 3,
 		Parent = titleBar,
 	})
 	local subtitle = create("TextLabel", {
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
-		Position = UDim2.new(1, -180, 0, 0),
-		Size = UDim2.fromOffset(112, 48),
+		Position = UDim2.new(1, -252, 0, 0),
+		Size = UDim2.fromOffset(132, 48),
 		Text = tostring(options.Subtitle or ""),
 		TextColor3 = Theme.Muted,
 		TextSize = 10,
 		TextXAlignment = Enum.TextXAlignment.Right,
+		ZIndex = 3,
 		Parent = titleBar,
 	})
+	local sizeButton = create("TextButton", {
+		AutoButtonColor = false,
+		BackgroundColor3 = Theme.Control,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamBold,
+		Position = UDim2.new(1, -108, 0, 10),
+		Size = UDim2.fromOffset(52, 28),
+		Text = "SIZE",
+		TextColor3 = Theme.Text,
+		TextSize = 9,
+		ZIndex = 5,
+		Parent = titleBar,
+	})
+	addCorner(sizeButton, Defaults.ControlRadius)
+	addStroke(sizeButton, Theme.Stroke, 0.25)
+	bindHover(sizeButton, Theme.Control, Theme.ControlHover)
 
 	local close = create("TextButton", {
 		AutoButtonColor = false,
@@ -1193,6 +1244,7 @@ function GrayUI:CreateWindow(options)
 		Text = "×",
 		TextColor3 = Theme.Muted,
 		TextSize = 18,
+		ZIndex = 5,
 		Parent = titleBar,
 	})
 	addCorner(close, 6)
@@ -1202,14 +1254,15 @@ function GrayUI:CreateWindow(options)
 		BackgroundColor3 = Theme.Panel,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
-		Position = UDim2.fromOffset(0, 48),
+		Position = UDim2.fromOffset(10, 52),
 		ScrollBarThickness = 0,
 		ScrollingDirection = Enum.ScrollingDirection.X,
-		Size = UDim2.new(1, 0, 0, 44),
+		Size = UDim2.new(1, -20, 0, 40),
 		Parent = main,
 	})
+	addCorner(tabBar, Defaults.TabRadius)
 	local tabSidePadding = options.TabSidePadding or 12
-	addPadding(tabBar, tabSidePadding, tabSidePadding, 6, 6)
+	addPadding(tabBar, tabSidePadding, tabSidePadding, 4, 4)
 	local tabLayout = create("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		Padding = UDim.new(0, options.TabSpacing or Defaults.TabSpacing),
@@ -1217,30 +1270,52 @@ function GrayUI:CreateWindow(options)
 		Parent = tabBar,
 	})
 
+	local resizeFooter = create("Frame", {
+		BackgroundColor3 = Theme.Panel,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0, 8, 1, -42),
+		Size = UDim2.new(1, -16, 0, 34),
+		Parent = main,
+	})
+	addCorner(resizeFooter, Defaults.SectionRadius)
+	addStroke(resizeFooter, Theme.Stroke, 0.3)
+	local resizeStatus = create("TextLabel", {
+		BackgroundTransparency = 1,
+		Font = Enum.Font.Gotham,
+		Position = UDim2.fromOffset(14, 0),
+		Size = UDim2.new(1, -132, 1, 0),
+		Text = string.format("%d × %d · TEXT 100%%", initialSize.X, initialSize.Y),
+		TextColor3 = Theme.Muted,
+		TextSize = 9,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = resizeFooter,
+	})
+
 	local pageHolder = create("Frame", {
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(12, 102),
-		Size = UDim2.new(1, -24, 1, -114),
+		Size = UDim2.new(1, -24, 1, -154),
 		Parent = main,
 	})
 
 	local resizeHandle = create("TextButton", {
 		Active = true,
-		AnchorPoint = Vector2.new(1, 1),
+		AnchorPoint = Vector2.new(1, 0.5),
 		AutoButtonColor = false,
 		BackgroundColor3 = Theme.PanelLight,
 		BackgroundTransparency = 0.2,
 		BorderSizePixel = 0,
-		Font = Enum.Font.Code,
-		Position = UDim2.fromScale(1, 1),
-		Size = UDim2.fromOffset(30, 30),
-		Text = "◢",
-		TextColor3 = Theme.Muted,
-		TextSize = 15,
-		ZIndex = 20,
-		Parent = main,
+		Font = Enum.Font.GothamBold,
+		Position = UDim2.new(1, -7, 0.5, 0),
+		Size = UDim2.fromOffset(104, 26),
+		Text = "RESIZE  ↘",
+		TextColor3 = Theme.Text,
+		TextSize = 9,
+		ZIndex = 50,
+		Parent = resizeFooter,
 	})
-	addCorner(resizeHandle, 10)
+	addCorner(resizeHandle, Defaults.ControlRadius)
+	addStroke(resizeHandle, Theme.Stroke, 0.2)
 	bindHover(resizeHandle, Theme.PanelLight, Theme.ControlHover)
 
 	local reopen = create("TextButton", {
@@ -1279,6 +1354,11 @@ function GrayUI:CreateWindow(options)
 		ActiveTab = nil,
 		MinimumSize = minimum,
 		MaximumSize = maximum,
+		ResizeHandle = resizeHandle,
+		ResizeStatus = resizeStatus,
+		SizeButton = sizeButton,
+		SizePresets = sizePresets,
+		SizePresetIndex = math.min(2, #sizePresets),
 		_ResizeListeners = {},
 		_ResizeUpdateQueued = false,
 		Theme = Theme,
@@ -1301,10 +1381,25 @@ function GrayUI:CreateWindow(options)
 		window:_QueueTabLayout()
 	end)
 
-	makeDraggable(titleBar, main)
+	makeDraggable(dragZone, main)
 	makeDraggable(reopen, reopen)
 	makeResizable(resizeHandle, main, minimum, maximum)
 	window:_QueueTabLayout()
+
+	window:OnResize(function(size)
+		if resizeStatus.Parent then
+			resizeStatus.Text = string.format(
+				"%d × %d · TEXT %d%%",
+				math.floor(size.X + 0.5),
+				math.floor(size.Y + 0.5),
+				math.floor(window:GetTextScale() * 100 + 0.5)
+			)
+		end
+	end)
+
+	sizeButton.Activated:Connect(function()
+		window:CycleSize()
+	end)
 
 	local transitionId = 0
 	function window:SetOpen(open)
