@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "1.2.1"
+GrayUI.Version = "2.0.0"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -19,7 +19,20 @@ local Theme = {
 	Danger = Color3.fromRGB(230, 104, 112),
 }
 
+local Defaults = {
+	WindowRadius = 14,
+	SectionRadius = 11,
+	ControlRadius = 8,
+	TabRadius = 8,
+	TabSpacing = 6,
+	TabMinimumWidth = 82,
+	TabMaximumWidth = 190,
+	MinTextScale = 0.82,
+	MaxTextScale = 1.35,
+}
+
 GrayUI.Theme = Theme
+GrayUI.Defaults = Defaults
 
 local function create(className, properties)
 	local object = Instance.new(className)
@@ -105,6 +118,82 @@ local function inputPosition2(input)
 	return Vector2.new(position.X, position.Y)
 end
 
+local function isTextObject(object)
+	return object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox")
+end
+
+local function bindResponsiveTypography(root, referenceSize, options)
+	local enabled = options.ScaleText ~= false
+	local minimumScale = options.MinTextScale or Defaults.MinTextScale
+	local maximumScale = options.MaxTextScale or Defaults.MaxTextScale
+	local baseSizes = setmetatable({}, { __mode = "k" })
+	local currentScale = 1
+	local updateQueued = false
+
+	local function register(object)
+		if isTextObject(object) and not baseSizes[object] then
+			baseSizes[object] = object.TextSize
+		end
+	end
+
+	local function update()
+		updateQueued = false
+		if not root.Parent then
+			return
+		end
+
+		local size = root.AbsoluteSize
+		local widthRatio = size.X / math.max(1, referenceSize.X)
+		local heightRatio = size.Y / math.max(1, referenceSize.Y)
+		currentScale = enabled
+			and math.clamp(math.sqrt(widthRatio * heightRatio), minimumScale, maximumScale)
+			or 1
+
+		for object, baseSize in pairs(baseSizes) do
+			if object.Parent then
+				object.TextSize = math.max(8, math.floor(baseSize * currentScale + 0.5))
+			else
+				baseSizes[object] = nil
+			end
+		end
+	end
+
+	local function queueUpdate()
+		if not updateQueued then
+			updateQueued = true
+			task.defer(update)
+		end
+	end
+
+	for _, descendant in ipairs(root:GetDescendants()) do
+		register(descendant)
+	end
+	root.DescendantAdded:Connect(function(descendant)
+		register(descendant)
+		queueUpdate()
+	end)
+	root:GetPropertyChangedSignal("AbsoluteSize"):Connect(queueUpdate)
+	queueUpdate()
+
+	return {
+		GetScale = function()
+			return currentScale
+		end,
+		Refresh = function()
+			for _, descendant in ipairs(root:GetDescendants()) do
+				if isTextObject(descendant) then
+					baseSizes[descendant] = descendant.TextSize / math.max(currentScale, 0.001)
+				end
+			end
+			queueUpdate()
+		end,
+		SetEnabled = function(value)
+			enabled = value == true
+			queueUpdate()
+		end,
+	}
+end
+
 local function makeDraggable(handle, target)
 	local dragging = false
 	local dragMode
@@ -165,6 +254,7 @@ local function makeResizable(handle, target, minimum, maximum)
 	local touchInput
 	local resizeStart
 	local startSize
+	local startTopLeft
 
 	handle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -174,6 +264,7 @@ local function makeResizable(handle, target, minimum, maximum)
 			touchInput = resizeMode == "Touch" and input or nil
 			resizeStart = inputPosition2(input)
 			startSize = target.AbsoluteSize
+			startTopLeft = target.AbsolutePosition
 
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
@@ -192,9 +283,17 @@ local function makeResizable(handle, target, minimum, maximum)
 
 		if resizing and (isMouseMove or isTouchMove) then
 			local delta = inputPosition2(input) - resizeStart
-			local width = math.clamp(startSize.X + delta.X, minimum.X, maximum.X)
-			local height = math.clamp(startSize.Y + delta.Y, minimum.Y, maximum.Y)
+			local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+				or Vector2.new(1920, 1080)
+			local maximumWidth = math.max(minimum.X, math.min(maximum.X, viewport.X - startTopLeft.X - 4))
+			local maximumHeight = math.max(minimum.Y, math.min(maximum.Y, viewport.Y - startTopLeft.Y - 4))
+			local width = math.clamp(startSize.X + delta.X, minimum.X, maximumWidth)
+			local height = math.clamp(startSize.Y + delta.Y, minimum.Y, maximumHeight)
 			target.Size = UDim2.fromOffset(width, height)
+			target.Position = UDim2.fromOffset(
+				startTopLeft.X + width * target.AnchorPoint.X,
+				startTopLeft.Y + height * target.AnchorPoint.Y
+			)
 		end
 	end)
 end
@@ -258,7 +357,7 @@ function Section:AddButton(options)
 		TextSize = 13,
 		Parent = self.Container,
 	})
-	addCorner(button, 7)
+	addCorner(button, options.Radius or Defaults.ControlRadius)
 	addStroke(button, Theme.Stroke, 0.2)
 	bindHover(button)
 
@@ -282,7 +381,7 @@ end
 function Section:AddTextbox(options)
 	options = options or {}
 	local row = self:_makeRow(options.Height or 58)
-	addCorner(row, 7)
+	addCorner(row, options.Radius or Defaults.ControlRadius)
 	addStroke(row, Theme.Stroke, 0.2)
 
 	local title = create("TextLabel", {
@@ -336,7 +435,7 @@ function Section:AddTextArea(options)
 	local height = options.Height or 220
 	local row = self:_makeRow(height)
 	row.ClipsDescendants = true
-	addCorner(row, 7)
+	addCorner(row, options.Radius or Defaults.ControlRadius)
 	addStroke(row, Theme.Stroke, 0.2)
 
 	local title = create("TextLabel", {
@@ -429,7 +528,7 @@ function Section:AddToggle(options)
 		Text = "",
 		Parent = self.Container,
 	})
-	addCorner(button, 7)
+	addCorner(button, options.Radius or Defaults.ControlRadius)
 	addStroke(button, Theme.Stroke, 0.2)
 	bindHover(button)
 
@@ -518,7 +617,7 @@ function Section:AddDropdown(options)
 		Text = "",
 		Parent = holder,
 	})
-	addCorner(main, 7)
+	addCorner(main, options.Radius or Defaults.ControlRadius)
 	addStroke(main, Theme.Stroke, 0.2)
 	bindHover(main)
 
@@ -564,7 +663,7 @@ function Section:AddDropdown(options)
 		Visible = false,
 		Parent = holder,
 	})
-	addCorner(optionsFrame, 7)
+	addCorner(optionsFrame, options.Radius or Defaults.ControlRadius)
 	addStroke(optionsFrame, Theme.Stroke, 0.2)
 	addPadding(optionsFrame, 5)
 	local optionsLayout = create("UIListLayout", {
@@ -640,10 +739,15 @@ function Section:Clear()
 	end
 end
 
+function Section:SetSpacing(pixels)
+	self.Layout.Padding = UDim.new(0, math.max(0, tonumber(pixels) or 0))
+end
+
 local Page = {}
 Page.__index = Page
 
 function Page:AddSection(title)
+	local options = type(title) == "table" and title or { Title = title }
 	local frame = create("Frame", {
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = Theme.Panel,
@@ -651,11 +755,12 @@ function Page:AddSection(title)
 		Size = UDim2.new(1, 0, 0, 40),
 		Parent = self.Container,
 	})
-	addCorner(frame, 9)
+	addCorner(frame, options.Radius or Defaults.SectionRadius)
 	addStroke(frame, Theme.Stroke, 0.35)
-	addPadding(frame, 10)
-	create("UIListLayout", {
-		Padding = UDim.new(0, 8),
+	local sectionPadding = options.Padding or 10
+	addPadding(frame, sectionPadding)
+	local layout = create("UIListLayout", {
+		Padding = UDim.new(0, options.Spacing or 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = frame,
 	})
@@ -665,7 +770,7 @@ function Page:AddSection(title)
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
 		Size = UDim2.new(1, 0, 0, 18),
-		Text = tostring(title or "Section"),
+		Text = tostring(options.Title or options.Text or "Section"),
 		TextColor3 = Theme.Text,
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -674,26 +779,161 @@ function Page:AddSection(title)
 
 	return setmetatable({
 		Container = frame,
+		Layout = layout,
 		Page = self,
 	}, Section)
+end
+
+function Page:SetSpacing(pixels)
+	self.Layout.Padding = UDim.new(0, math.max(0, tonumber(pixels) or 0))
+end
+
+function Page:Select()
+	self.Window:SelectTab(self)
+end
+
+function Page:SetName(name)
+	self.Name = tostring(name or "Tab")
+	self.Button.Text = self.Name
+	self.Window:_QueueTabLayout()
+end
+
+function Page:Destroy()
+	local tabs = self.Window.Tabs
+	local index = table.find(tabs, self)
+	if not index then
+		return
+	end
+
+	local wasActive = self.Window.ActiveTab == self
+	table.remove(tabs, index)
+	self.Button:Destroy()
+	self.Container:Destroy()
+	if wasActive then
+		self.Window.ActiveTab = nil
+		local replacement = tabs[math.min(index, #tabs)]
+		if replacement then
+			self.Window:SelectTab(replacement)
+		end
+	end
+	self.Window:_QueueTabLayout()
 end
 
 local Window = {}
 Window.__index = Window
 
-function Window:AddTab(name)
+function Window:_UpdateTabLayout()
+	self._TabLayoutQueued = false
+	local count = #self.Tabs
+	if count == 0 or not self.TabBar.Parent then
+		return
+	end
+
+	local available = math.max(1, self.TabBar.AbsoluteSize.X - self.TabSidePadding * 2)
+	local spacing = self.TabSpacing
+	local totalDesired = spacing * math.max(0, count - 1)
+	for _, tab in ipairs(self.Tabs) do
+		local measured = math.max(tab.Button.TextBounds.X, #tab.Name * 7)
+		tab._DesiredWidth = math.clamp(
+			measured + 30,
+			tab.MinimumWidth or self.TabMinimumWidth,
+			tab.MaximumWidth or self.TabMaximumWidth
+		)
+		totalDesired = totalDesired + tab._DesiredWidth
+	end
+
+	local overflow = totalDesired > available
+	local extraPerTab = overflow and 0 or (available - totalDesired) / count
+	local finalWidth = spacing * math.max(0, count - 1)
+	for _, tab in ipairs(self.Tabs) do
+		local width = math.floor(tab._DesiredWidth + extraPerTab + 0.5)
+		tab.Button.Size = UDim2.fromOffset(width, 32)
+		finalWidth = finalWidth + width
+	end
+
+	self.TabBar.ScrollBarThickness = overflow and 2 or 0
+	self.TabBar.CanvasSize = overflow
+		and UDim2.fromOffset(finalWidth + self.TabSidePadding * 2, 0)
+		or UDim2.new()
+end
+
+function Window:_QueueTabLayout()
+	if self._TabLayoutQueued then
+		return
+	end
+	self._TabLayoutQueued = true
+	task.defer(function()
+		self:_UpdateTabLayout()
+	end)
+end
+
+function Window:SelectTab(target)
+	if type(target) == "string" then
+		for _, tab in ipairs(self.Tabs) do
+			if tab.Name == target then
+				target = tab
+				break
+			end
+		end
+	end
+	if type(target) ~= "table" or target.Window ~= self then
+		return false
+	end
+
+	self.ActiveTab = target
+	for _, tab in ipairs(self.Tabs) do
+		local active = tab == target
+		tab.Container.Visible = active
+		tween(tab.Button, {
+			BackgroundColor3 = active and Theme.Control or Theme.Panel,
+			TextColor3 = active and Theme.Text or Theme.Muted,
+		})
+	end
+
+	task.defer(function()
+		if not target.Button.Parent then
+			return
+		end
+		local bar = self.TabBar
+		local left = target.Button.AbsolutePosition.X - bar.AbsolutePosition.X + bar.CanvasPosition.X
+		local right = left + target.Button.AbsoluteSize.X
+		local visibleLeft = bar.CanvasPosition.X
+		local visibleRight = visibleLeft + bar.AbsoluteSize.X
+		if left < visibleLeft then
+			bar.CanvasPosition = Vector2.new(math.max(0, left - self.TabSidePadding), 0)
+		elseif right > visibleRight then
+			bar.CanvasPosition = Vector2.new(right - bar.AbsoluteSize.X + self.TabSidePadding, 0)
+		end
+	end)
+
+	if type(target.OnSelected) == "function" then
+		task.spawn(target.OnSelected, target)
+	end
+	return true
+end
+
+function Window:AddTab(name, tabOptions)
+	if type(name) == "table" then
+		tabOptions = name
+		name = tabOptions.Name or tabOptions.Text
+	else
+		tabOptions = tabOptions or {}
+	end
+	name = tostring(name or "Tab")
+
 	local button = create("TextButton", {
 		AutoButtonColor = false,
 		BackgroundColor3 = Theme.Panel,
 		BorderSizePixel = 0,
 		Font = Enum.Font.GothamMedium,
-		Size = UDim2.fromOffset(105, 32),
-		Text = tostring(name or "Tab"),
+		LayoutOrder = tabOptions.Order or (#self.Tabs + 1),
+		Size = UDim2.fromOffset(self.TabMinimumWidth, 32),
+		Text = name,
 		TextColor3 = Theme.Muted,
-		TextSize = 12,
+		TextSize = tabOptions.TextSize or 12,
 		Parent = self.TabBar,
 	})
-	addCorner(button, 6)
+	addCorner(button, tabOptions.Radius or Defaults.TabRadius)
 
 	local scrolling = create("ScrollingFrame", {
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -707,8 +947,8 @@ function Window:AddTab(name)
 		Parent = self.PageHolder,
 	})
 	addPadding(scrolling, 2, 5, 2, 8)
-	create("UIListLayout", {
-		Padding = UDim.new(0, 10),
+	local pageLayout = create("UIListLayout", {
+		Padding = UDim.new(0, tabOptions.Spacing or 10),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = scrolling,
 	})
@@ -717,27 +957,54 @@ function Window:AddTab(name)
 		Button = button,
 		Container = scrolling,
 		Name = name,
+		Layout = pageLayout,
+		MinimumWidth = tabOptions.MinimumWidth,
+		MaximumWidth = tabOptions.MaximumWidth,
+		OnSelected = tabOptions.OnSelected,
 		Window = self,
 	}, Page)
 
-	local function selectTab()
-		for _, other in ipairs(self.Tabs) do
-			local active = other == page
-			other.Container.Visible = active
-			tween(other.Button, {
-				BackgroundColor3 = active and Theme.Control or Theme.Panel,
-				TextColor3 = active and Theme.Text or Theme.Muted,
-			})
-		end
-	end
-
-	button.Activated:Connect(selectTab)
+	button.Activated:Connect(function()
+		self:SelectTab(page)
+	end)
+	button.MouseEnter:Connect(function()
+		tween(button, { BackgroundColor3 = Theme.ControlHover })
+	end)
+	button.MouseLeave:Connect(function()
+		tween(button, {
+			BackgroundColor3 = self.ActiveTab == page and Theme.Control or Theme.Panel,
+		})
+	end)
+	button:GetPropertyChangedSignal("TextBounds"):Connect(function()
+		self:_QueueTabLayout()
+	end)
 	table.insert(self.Tabs, page)
+	self:_QueueTabLayout()
 	if #self.Tabs == 1 then
-		selectTab()
+		self:SelectTab(page)
 	end
 
 	return page
+end
+
+function Window:AddTabs(definitions)
+	assert(type(definitions) == "table", "Window:AddTabs expects an array")
+	local pages = table.create(#definitions)
+	for index, definition in ipairs(definitions) do
+		pages[index] = type(definition) == "table"
+			and self:AddTab(definition)
+			or self:AddTab(tostring(definition))
+	end
+	return pages
+end
+
+function Window:GetTab(name)
+	for _, tab in ipairs(self.Tabs) do
+		if tab.Name == name then
+			return tab
+		end
+	end
+	return nil
 end
 
 function Window:Notify(message, kind, duration)
@@ -785,6 +1052,58 @@ function Window:SetVisible(visible)
 	self:SetOpen(visible == true)
 end
 
+function Window:GetSize()
+	return self.Main.AbsoluteSize
+end
+
+function Window:SetSize(size, animated)
+	assert(typeof(size) == "Vector2", "Window:SetSize expects a Vector2")
+	local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+		or Vector2.new(1920, 1080)
+	local maximum = Vector2.new(
+		math.max(self.MinimumSize.X, math.min(self.MaximumSize.X, viewport.X - 8)),
+		math.max(self.MinimumSize.Y, math.min(self.MaximumSize.Y, viewport.Y - 8))
+	)
+	local clamped = Vector2.new(
+		math.clamp(size.X, self.MinimumSize.X, maximum.X),
+		math.clamp(size.Y, self.MinimumSize.Y, maximum.Y)
+	)
+	local targetSize = UDim2.fromOffset(clamped.X, clamped.Y)
+	if animated == false then
+		self.Main.Size = targetSize
+	else
+		tween(self.Main, { Size = targetSize }, 0.2)
+	end
+	return clamped
+end
+
+function Window:SetTextScaling(enabled)
+	self.Typography:SetEnabled(enabled)
+end
+
+function Window:GetTextScale()
+	return self.Typography:GetScale()
+end
+
+function Window:RefreshTypography()
+	self.Typography:Refresh()
+end
+
+function Window:SetTabSpacing(pixels)
+	self.TabSpacing = math.max(0, tonumber(pixels) or 0)
+	self.TabLayout.Padding = UDim.new(0, self.TabSpacing)
+	self:_QueueTabLayout()
+end
+
+function Window:OnResize(callback)
+	assert(type(callback) == "function", "Window:OnResize expects a function")
+	self._ResizeListeners[callback] = true
+	task.spawn(callback, self.Main.AbsoluteSize, self)
+	return function()
+		self._ResizeListeners[callback] = nil
+	end
+end
+
 function Window:Destroy()
 	self.ScreenGui:Destroy()
 end
@@ -827,7 +1146,7 @@ function GrayUI:CreateWindow(options)
 		Size = UDim2.fromOffset(initialSize.X, initialSize.Y),
 		Parent = screenGui,
 	})
-	addCorner(main, 11)
+	addCorner(main, options.CornerRadius or Defaults.WindowRadius)
 	addStroke(main, Theme.Stroke, 0.05)
 	local mainScale = create("UIScale", {
 		Scale = 1,
@@ -879,7 +1198,7 @@ function GrayUI:CreateWindow(options)
 	addCorner(close, 6)
 	bindHover(close, Theme.Control, Color3.fromRGB(91, 43, 47))
 	local tabBar = create("ScrollingFrame", {
-		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		AutomaticCanvasSize = Enum.AutomaticSize.None,
 		BackgroundColor3 = Theme.Panel,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
@@ -889,12 +1208,133 @@ function GrayUI:CreateWindow(options)
 		Size = UDim2.new(1, 0, 0, 44),
 		Parent = main,
 	})
-	addPadding(tabBar, 12, 12, 6, 6)
-	create("UIListLayout", {
+	local tabSidePadding = options.TabSidePadding or 12
+	addPadding(tabBar, tabSidePadding, tabSidePadding, 6, 6)
+	local tabLayout = create("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 6),
+		Padding = UDim.new(0, options.TabSpacing or Defaults.TabSpacing),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = tabBar,
 	})
 
 	local pageHolder = create("Frame", {
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 102),
+		Size = UDim2.new(1, -24, 1, -114),
+		Parent = main,
+	})
+
+	local resizeHandle = create("TextButton", {
+		Active = true,
+		AnchorPoint = Vector2.new(1, 1),
+		AutoButtonColor = false,
+		BackgroundColor3 = Theme.PanelLight,
+		BackgroundTransparency = 0.2,
+		BorderSizePixel = 0,
+		Font = Enum.Font.Code,
+		Position = UDim2.fromScale(1, 1),
+		Size = UDim2.fromOffset(30, 30),
+		Text = "◢",
+		TextColor3 = Theme.Muted,
+		TextSize = 15,
+		ZIndex = 20,
+		Parent = main,
+	})
+	addCorner(resizeHandle, 10)
+	bindHover(resizeHandle, Theme.PanelLight, Theme.ControlHover)
+
+	local reopen = create("TextButton", {
+		Active = true,
+		AnchorPoint = Vector2.new(0.5, 0),
+		AutoButtonColor = false,
+		BackgroundColor3 = Theme.PanelLight,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamBold,
+		Position = UDim2.new(0.5, 0, 0, 12),
+		Size = UDim2.fromOffset(96, 36),
+		Text = tostring(options.ReopenText or "OPEN UI"),
+		TextColor3 = Theme.Text,
+		TextSize = 11,
+		Visible = false,
+		ZIndex = 100,
+		Parent = screenGui,
+	})
+	addCorner(reopen, Defaults.SectionRadius)
+	addStroke(reopen, Theme.Stroke, 0.05)
+	bindHover(reopen, Theme.PanelLight, Theme.ControlHover)
+
+	local window = setmetatable({
+		Main = main,
+		PageHolder = pageHolder,
+		ScreenGui = screenGui,
+		Scale = mainScale,
+		Reopen = reopen,
+		TabBar = tabBar,
+		TabLayout = tabLayout,
+		TabSidePadding = tabSidePadding,
+		TabSpacing = options.TabSpacing or Defaults.TabSpacing,
+		TabMinimumWidth = options.TabMinimumWidth or Defaults.TabMinimumWidth,
+		TabMaximumWidth = options.TabMaximumWidth or Defaults.TabMaximumWidth,
+		Tabs = {},
+		ActiveTab = nil,
+		MinimumSize = minimum,
+		MaximumSize = maximum,
+		_ResizeListeners = {},
+		_ResizeUpdateQueued = false,
+		Theme = Theme,
+	}, Window)
+
+	window.Typography = bindResponsiveTypography(main, initialSize, options)
+	main:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		window:_QueueTabLayout()
+		if not window._ResizeUpdateQueued then
+			window._ResizeUpdateQueued = true
+			task.defer(function()
+				window._ResizeUpdateQueued = false
+				for callback in pairs(window._ResizeListeners) do
+					task.spawn(callback, main.AbsoluteSize, window)
+				end
+			end)
+		end
+	end)
+	tabBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		window:_QueueTabLayout()
+	end)
+
+	makeDraggable(titleBar, main)
+	makeDraggable(reopen, reopen)
+	makeResizable(resizeHandle, main, minimum, maximum)
+	window:_QueueTabLayout()
+
+	local transitionId = 0
+	function window:SetOpen(open)
+		transitionId = transitionId + 1
+		local thisTransition = transitionId
+
+		if open then
+			reopen.Visible = false
+			main.Visible = true
+			mainScale.Scale = 0.92
+			tween(mainScale, { Scale = 1 }, 0.18)
+		else
+			tween(mainScale, { Scale = 0.92 }, 0.15)
+			task.delay(0.15, function()
+				if transitionId == thisTransition and screenGui.Parent then
+					main.Visible = false
+					reopen.Visible = true
+				end
+			end)
+		end
+	end
+
+	close.Activated:Connect(function()
+		window:SetOpen(false)
+	end)
+	reopen.Activated:Connect(function()
+		window:SetOpen(true)
+	end)
+
+	return window
+end
+
+return GrayUI
