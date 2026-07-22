@@ -1,7 +1,7 @@
 -- Decoder GUI - all capture/replay logic is loaded from DecoderCore.lua.
 
 local GRAY_UI_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/GrayUI.lua?v=2"
-local CORE_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/DecoderCore.lua?v=5"
+local CORE_URL = "https://raw.githubusercontent.com/AutonomousDebugger/UILibrarys/refs/heads/main/DecoderCore.lua?v=6"
 
 local function LoadLibrary(Url, Name)
 	assert(type(loadstring) == "function", "loadstring is unavailable")
@@ -304,7 +304,7 @@ ApiSection:AddLabel({
 })
 
 local BehaviorSection = InformationPage:AddSection("Behavior")
-BehaviorSection:AddLabel("Outgoing uses both __namecall and direct FireServer/InvokeServer hooks. Calls seen by both hooks are counted once.")
+BehaviorSection:AddLabel("Outgoing uses one __namecall hook. The original FireServer/InvokeServer call completes before Decoder records it.")
 BehaviorSection:AddLabel("Incoming RemoteEvents are captured by OnClientEvent connections. RemoteFunctions use hookfunction when available.")
 BehaviorSection:AddButton({
 	Text = "Delete Decoder",
@@ -316,4 +316,4 @@ BehaviorSection:AddButton({
 	end,
 })
 
-Window:Notify("Decoder 2.1.1 is capturing traffic.", "success")
+Window:Notify("Decoder 2.2 is capturing traffic.", "success")
