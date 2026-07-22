@@ -1,7 +1,5 @@
-npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
-npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
 local GrayUI = {}
-GrayUI.Version = "2.1.1"
+GrayUI.Version = "2.1.2"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -1450,3 +1448,9 @@ function GrayUI:CreateWindow(options)
 	end)
 	reopen.Activated:Connect(function()
 		window:SetOpen(true)
+	end)
+
+	return window
+end
+
+return GrayUI
