@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "2.1.9"
+GrayUI.Version = "2.2.0"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -503,49 +503,88 @@ function Section:AddTextArea(options)
 
 	-- Native nested scrollbars can render outside an ancestor ScrollingFrame.
 	-- These normal Frames stay clipped by the rounded text-area row instead.
-	local verticalTrack = create("Frame", {
-		BackgroundColor3 = Theme.PanelLight,
-		BackgroundTransparency = 0.35,
+	local verticalTrack = create("TextButton", {
+		Active = true,
+		AutoButtonColor = false,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		Position = UDim2.new(1, -7, 0, 36),
-		Size = UDim2.new(0, 3, 1, -48),
+		Position = UDim2.new(1, -12, 0, 36),
+		Size = UDim2.new(0, 10, 1, -48),
+		Text = "",
 		Visible = false,
 		ZIndex = 6,
 		Parent = row,
 	})
-	addCorner(verticalTrack, 2)
+	local verticalRail = create("Frame", {
+		BackgroundColor3 = Theme.PanelLight,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0.5, -1, 0, 0),
+		Size = UDim2.new(0, 2, 1, 0),
+		ZIndex = 6,
+		Parent = verticalTrack,
+	})
+	addCorner(verticalRail, 2)
 	local verticalThumb = create("Frame", {
 		BackgroundColor3 = Theme.Muted,
 		BackgroundTransparency = 0.15,
 		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(3, 18),
+		Position = UDim2.fromOffset(3, 0),
+		Size = UDim2.fromOffset(4, 18),
 		ZIndex = 7,
 		Parent = verticalTrack,
 	})
 	addCorner(verticalThumb, 2)
 
-	local horizontalTrack = create("Frame", {
-		BackgroundColor3 = Theme.PanelLight,
-		BackgroundTransparency = 0.35,
+	local horizontalTrack = create("TextButton", {
+		Active = true,
+		AutoButtonColor = false,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		Position = UDim2.new(0, 12, 1, -7),
-		Size = UDim2.new(1, -24, 0, 3),
+		Position = UDim2.new(0, 12, 1, -12),
+		Size = UDim2.new(1, -24, 0, 10),
+		Text = "",
 		Visible = false,
 		ZIndex = 6,
 		Parent = row,
 	})
-	addCorner(horizontalTrack, 2)
+	local horizontalRail = create("Frame", {
+		BackgroundColor3 = Theme.PanelLight,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0, 0, 0.5, -1),
+		Size = UDim2.new(1, 0, 0, 2),
+		ZIndex = 6,
+		Parent = horizontalTrack,
+	})
+	addCorner(horizontalRail, 2)
 	local horizontalThumb = create("Frame", {
 		BackgroundColor3 = Theme.Muted,
 		BackgroundTransparency = 0.15,
 		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(18, 3),
+		Position = UDim2.fromOffset(0, 3),
+		Size = UDim2.fromOffset(18, 4),
 		ZIndex = 7,
 		Parent = horizontalTrack,
 	})
 	addCorner(horizontalThumb, 2)
 
 	local canvasPixels = Vector2.new(1, 1)
+	local function getMaximumCanvas()
+		return Vector2.new(
+			math.max(0, canvasPixels.X - scroller.AbsoluteSize.X),
+			math.max(0, canvasPixels.Y - scroller.AbsoluteSize.Y)
+		)
+	end
+
+	local function setCanvasPosition(x, y)
+		local maximum = getMaximumCanvas()
+		scroller.CanvasPosition = Vector2.new(
+			math.clamp(x, 0, maximum.X),
+			math.clamp(y, 0, maximum.Y)
+		)
+	end
+
 	local function updateIndicators()
 		if not scroller.Parent then
 			return
@@ -562,8 +601,8 @@ function Section:AddTextArea(options)
 			local thumbWidth = math.max(18, math.floor(horizontalWidth * viewportSize.X / canvasPixels.X + 0.5))
 			thumbWidth = math.min(horizontalWidth, thumbWidth)
 			local progress = math.clamp(scroller.CanvasPosition.X / overflowX, 0, 1)
-			horizontalThumb.Size = UDim2.fromOffset(thumbWidth, 3)
-			horizontalThumb.Position = UDim2.fromOffset((horizontalWidth - thumbWidth) * progress, 0)
+			horizontalThumb.Size = UDim2.fromOffset(thumbWidth, 4)
+			horizontalThumb.Position = UDim2.fromOffset((horizontalWidth - thumbWidth) * progress, 3)
 		end
 
 		verticalTrack.Visible = overflowY > 1 and verticalHeight > 0
@@ -571,10 +610,106 @@ function Section:AddTextArea(options)
 			local thumbHeight = math.max(18, math.floor(verticalHeight * viewportSize.Y / canvasPixels.Y + 0.5))
 			thumbHeight = math.min(verticalHeight, thumbHeight)
 			local progress = math.clamp(scroller.CanvasPosition.Y / overflowY, 0, 1)
-			verticalThumb.Size = UDim2.fromOffset(3, thumbHeight)
-			verticalThumb.Position = UDim2.fromOffset(0, (verticalHeight - thumbHeight) * progress)
+			verticalThumb.Size = UDim2.fromOffset(4, thumbHeight)
+			verticalThumb.Position = UDim2.fromOffset(3, (verticalHeight - thumbHeight) * progress)
 		end
 	end
+
+	local barDragAxis
+	local barDragMode
+	local barTouchInput
+	local function updateBarDrag(input)
+		if not barDragAxis then
+			return
+		end
+
+		local track = barDragAxis == "X" and horizontalTrack or verticalTrack
+		local thumb = barDragAxis == "X" and horizontalThumb or verticalThumb
+		local pointer = pointerPosition(input, barDragMode)
+		local trackStart = barDragAxis == "X" and track.AbsolutePosition.X or track.AbsolutePosition.Y
+		local trackLength = barDragAxis == "X" and track.AbsoluteSize.X or track.AbsoluteSize.Y
+		local thumbLength = barDragAxis == "X" and thumb.AbsoluteSize.X or thumb.AbsoluteSize.Y
+		local movableLength = math.max(1, trackLength - thumbLength)
+		local pointerAxis = barDragAxis == "X" and pointer.X or pointer.Y
+		local progress = math.clamp((pointerAxis - trackStart - thumbLength * 0.5) / movableLength, 0, 1)
+		local maximum = getMaximumCanvas()
+
+		if barDragAxis == "X" then
+			setCanvasPosition(maximum.X * progress, scroller.CanvasPosition.Y)
+		else
+			setCanvasPosition(scroller.CanvasPosition.X, maximum.Y * progress)
+		end
+	end
+
+	local function beginBarDrag(axis, input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1
+			and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+
+		barDragAxis = axis
+		barDragMode = input.UserInputType == Enum.UserInputType.Touch and "Touch" or "Mouse"
+		barTouchInput = barDragMode == "Touch" and input or nil
+		updateBarDrag(input)
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				barDragAxis = nil
+				barDragMode = nil
+				barTouchInput = nil
+			end
+		end)
+	end
+
+	verticalTrack.InputBegan:Connect(function(input)
+		beginBarDrag("Y", input)
+	end)
+	horizontalTrack.InputBegan:Connect(function(input)
+		beginBarDrag("X", input)
+	end)
+
+	local barInputConnection = UserInputService.InputChanged:Connect(function(input)
+		local isMouseMove = barDragMode == "Mouse"
+			and input.UserInputType == Enum.UserInputType.MouseMovement
+		local isTouchMove = barDragMode == "Touch" and input == barTouchInput
+		if barDragAxis and (isMouseMove or isTouchMove) then
+			updateBarDrag(input)
+		end
+	end)
+
+	local lastWheelInput
+	local function handleWheel(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseWheel or input == lastWheelInput then
+			return
+		end
+		lastWheelInput = input
+		task.defer(function()
+			if lastWheelInput == input then
+				lastWheelInput = nil
+			end
+		end)
+
+		local maximum = getMaximumCanvas()
+		local amount = input.Position.Z
+		local horizontal = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+			or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+			or (maximum.Y <= 0 and maximum.X > 0)
+		local step = math.max(36, box.TextSize * 4)
+		if horizontal then
+			setCanvasPosition(scroller.CanvasPosition.X - amount * step, scroller.CanvasPosition.Y)
+		else
+			setCanvasPosition(scroller.CanvasPosition.X, scroller.CanvasPosition.Y - amount * step)
+		end
+	end
+	scroller.InputChanged:Connect(handleWheel)
+	box.InputChanged:Connect(handleWheel)
+
+	local ancestryConnection
+	ancestryConnection = row.AncestryChanged:Connect(function(_, parent)
+		if parent == nil then
+			barInputConnection:Disconnect()
+			ancestryConnection:Disconnect()
+		end
+	end)
 
 	local function updateCanvas()
 		if not scroller.Parent then
@@ -602,7 +737,13 @@ function Section:AddTextArea(options)
 	verticalTrack:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateIndicators)
 	task.defer(updateCanvas)
 
-	local controller = { Object = box, Row = row, Scroller = scroller }
+	local controller = {
+		Object = box,
+		Row = row,
+		Scroller = scroller,
+		HorizontalScrollBar = horizontalTrack,
+		VerticalScrollBar = verticalTrack,
+	}
 	function controller:Get()
 		return box.Text
 	end
