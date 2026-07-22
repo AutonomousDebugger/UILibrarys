@@ -1,5 +1,7 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
 local GrayUI = {}
-GrayUI.Version = "2.1.0"
+GrayUI.Version = "2.1.1"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -454,11 +456,15 @@ function Section:AddTextArea(options)
 		BackgroundColor3 = Theme.Background,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
+		ClipsDescendants = true,
+		ElasticBehavior = Enum.ElasticBehavior.Never,
+		HorizontalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 		Position = UDim2.fromOffset(9, 32),
 		ScrollBarImageColor3 = Theme.Stroke,
 		ScrollBarThickness = 6,
 		ScrollingDirection = Enum.ScrollingDirection.XY,
 		Size = UDim2.new(1, -18, 1, -41),
+		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 		Parent = row,
 	})
 	addCorner(scroller, 6)
@@ -936,13 +942,17 @@ function Window:AddTab(name, tabOptions)
 	addCorner(button, tabOptions.Radius or Defaults.TabRadius)
 
 	local scrolling = create("ScrollingFrame", {
-		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		AutomaticCanvasSize = Enum.AutomaticSize.None,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
+		ClipsDescendants = true,
+		ElasticBehavior = Enum.ElasticBehavior.Never,
 		ScrollBarImageColor3 = Theme.Stroke,
 		ScrollBarThickness = 3,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
 		Size = UDim2.fromScale(1, 1),
+		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 		Visible = false,
 		Parent = self.PageHolder,
 	})
@@ -952,6 +962,14 @@ function Window:AddTab(name, tabOptions)
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = scrolling,
 	})
+	local function updatePageCanvas()
+		if scrolling.Parent then
+			scrolling.CanvasSize = UDim2.fromOffset(0, pageLayout.AbsoluteContentSize.Y + 12)
+		end
+	end
+	pageLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updatePageCanvas)
+	scrolling:GetPropertyChangedSignal("AbsoluteSize"):Connect(updatePageCanvas)
+	task.defer(updatePageCanvas)
 
 	local page = setmetatable({
 		Button = button,
@@ -1254,6 +1272,9 @@ function GrayUI:CreateWindow(options)
 		BackgroundColor3 = Theme.Panel,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
+		ClipsDescendants = true,
+		ElasticBehavior = Enum.ElasticBehavior.Never,
+		HorizontalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 		Position = UDim2.fromOffset(10, 52),
 		ScrollBarThickness = 0,
 		ScrollingDirection = Enum.ScrollingDirection.X,
@@ -1293,10 +1314,12 @@ function GrayUI:CreateWindow(options)
 
 	local pageHolder = create("Frame", {
 		BackgroundTransparency = 1,
+		ClipsDescendants = true,
 		Position = UDim2.fromOffset(12, 102),
 		Size = UDim2.new(1, -24, 1, -154),
 		Parent = main,
 	})
+	addCorner(pageHolder, Defaults.SectionRadius)
 
 	local resizeHandle = create("TextButton", {
 		Active = true,
@@ -1427,9 +1450,3 @@ function GrayUI:CreateWindow(options)
 	end)
 	reopen.Activated:Connect(function()
 		window:SetOpen(true)
-	end)
-
-	return window
-end
-
-return GrayUI
