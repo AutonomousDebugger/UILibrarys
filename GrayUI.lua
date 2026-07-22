@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "2.1.8"
+GrayUI.Version = "2.1.9"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -471,14 +471,13 @@ function Section:AddTextArea(options)
 		CanvasSize = UDim2.new(),
 		ClipsDescendants = true,
 		ElasticBehavior = Enum.ElasticBehavior.Never,
-		HorizontalScrollBarInset = Enum.ScrollBarInset.Always,
+		HorizontalScrollBarInset = Enum.ScrollBarInset.None,
 		Position = UDim2.fromOffset(10, 33),
-		ScrollBarImageColor3 = Theme.Stroke,
-		ScrollBarImageTransparency = 0.15,
-		ScrollBarThickness = 4,
+		ScrollBarImageTransparency = 1,
+		ScrollBarThickness = 0,
 		ScrollingDirection = Enum.ScrollingDirection.XY,
 		Size = UDim2.new(1, -20, 1, -43),
-		VerticalScrollBarInset = Enum.ScrollBarInset.Always,
+		VerticalScrollBarInset = Enum.ScrollBarInset.None,
 		Parent = row,
 	})
 	addCorner(scroller, 6)
@@ -502,6 +501,81 @@ function Section:AddTextArea(options)
 		Parent = scroller,
 	})
 
+	-- Native nested scrollbars can render outside an ancestor ScrollingFrame.
+	-- These normal Frames stay clipped by the rounded text-area row instead.
+	local verticalTrack = create("Frame", {
+		BackgroundColor3 = Theme.PanelLight,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		Position = UDim2.new(1, -7, 0, 36),
+		Size = UDim2.new(0, 3, 1, -48),
+		Visible = false,
+		ZIndex = 6,
+		Parent = row,
+	})
+	addCorner(verticalTrack, 2)
+	local verticalThumb = create("Frame", {
+		BackgroundColor3 = Theme.Muted,
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(3, 18),
+		ZIndex = 7,
+		Parent = verticalTrack,
+	})
+	addCorner(verticalThumb, 2)
+
+	local horizontalTrack = create("Frame", {
+		BackgroundColor3 = Theme.PanelLight,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0, 12, 1, -7),
+		Size = UDim2.new(1, -24, 0, 3),
+		Visible = false,
+		ZIndex = 6,
+		Parent = row,
+	})
+	addCorner(horizontalTrack, 2)
+	local horizontalThumb = create("Frame", {
+		BackgroundColor3 = Theme.Muted,
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(18, 3),
+		ZIndex = 7,
+		Parent = horizontalTrack,
+	})
+	addCorner(horizontalThumb, 2)
+
+	local canvasPixels = Vector2.new(1, 1)
+	local function updateIndicators()
+		if not scroller.Parent then
+			return
+		end
+
+		local viewportSize = scroller.AbsoluteSize
+		local overflowX = math.max(0, canvasPixels.X - viewportSize.X)
+		local overflowY = math.max(0, canvasPixels.Y - viewportSize.Y)
+		local horizontalWidth = horizontalTrack.AbsoluteSize.X
+		local verticalHeight = verticalTrack.AbsoluteSize.Y
+
+		horizontalTrack.Visible = overflowX > 1 and horizontalWidth > 0
+		if horizontalTrack.Visible then
+			local thumbWidth = math.max(18, math.floor(horizontalWidth * viewportSize.X / canvasPixels.X + 0.5))
+			thumbWidth = math.min(horizontalWidth, thumbWidth)
+			local progress = math.clamp(scroller.CanvasPosition.X / overflowX, 0, 1)
+			horizontalThumb.Size = UDim2.fromOffset(thumbWidth, 3)
+			horizontalThumb.Position = UDim2.fromOffset((horizontalWidth - thumbWidth) * progress, 0)
+		end
+
+		verticalTrack.Visible = overflowY > 1 and verticalHeight > 0
+		if verticalTrack.Visible then
+			local thumbHeight = math.max(18, math.floor(verticalHeight * viewportSize.Y / canvasPixels.Y + 0.5))
+			thumbHeight = math.min(verticalHeight, thumbHeight)
+			local progress = math.clamp(scroller.CanvasPosition.Y / overflowY, 0, 1)
+			verticalThumb.Size = UDim2.fromOffset(3, thumbHeight)
+			verticalThumb.Position = UDim2.fromOffset(0, (verticalHeight - thumbHeight) * progress)
+		end
+	end
+
 	local function updateCanvas()
 		if not scroller.Parent then
 			return
@@ -515,12 +589,17 @@ function Section:AddTextArea(options)
 		local contentHeight = math.max(minimumHeight, math.ceil(textBounds.Y) + 20)
 
 		box.Size = UDim2.fromOffset(contentWidth, contentHeight)
-		scroller.CanvasSize = UDim2.fromOffset(contentWidth + 16, contentHeight + 16)
+		canvasPixels = Vector2.new(contentWidth + 16, contentHeight + 16)
+		scroller.CanvasSize = UDim2.fromOffset(canvasPixels.X, canvasPixels.Y)
+		task.defer(updateIndicators)
 	end
 
 	box:GetPropertyChangedSignal("Text"):Connect(updateCanvas)
 	box:GetPropertyChangedSignal("TextBounds"):Connect(updateCanvas)
 	scroller:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCanvas)
+	scroller:GetPropertyChangedSignal("CanvasPosition"):Connect(updateIndicators)
+	horizontalTrack:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateIndicators)
+	verticalTrack:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateIndicators)
 	task.defer(updateCanvas)
 
 	local controller = { Object = box, Row = row, Scroller = scroller }
