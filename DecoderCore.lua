@@ -2,7 +2,7 @@
 -- No GUI code belongs in this file.
 
 local DecoderCore = {
-	Version = "2.1.0",
+	Version = "2.1.1",
 }
 
 local Environment = type(getgenv) == "function" and getgenv() or _G
@@ -47,9 +47,17 @@ local State = {
 }
 DecoderCore.State = State
 
-local NamecallBus = rawget(Environment, "__DecoderCoreNamecallBus")
+local PreviousNamecallBus = rawget(Environment, "__DecoderCoreNamecallBus")
+local NamecallBus = PreviousNamecallBus
+if type(NamecallBus) == "table" and NamecallBus.Version ~= 2 then
+	-- Older Decoder hooks scheduled live Instances with task.defer. Their hook
+	-- closure reads this field dynamically, so clearing it safely retires them.
+	NamecallBus.Callback = nil
+	NamecallBus = nil
+end
 if type(NamecallBus) ~= "table" then
 	NamecallBus = {
+		Version = 2,
 		Installed = false,
 		Callback = nil,
 		OldNamecall = nil,
@@ -58,9 +66,15 @@ if type(NamecallBus) ~= "table" then
 	Environment.__DecoderCoreNamecallBus = NamecallBus
 end
 
-local MethodBus = rawget(Environment, "__DecoderCoreMethodBus")
+local PreviousMethodBus = rawget(Environment, "__DecoderCoreMethodBus")
+local MethodBus = PreviousMethodBus
+if type(MethodBus) == "table" and MethodBus.Version ~= 2 then
+	MethodBus.Callback = nil
+	MethodBus = nil
+end
 if type(MethodBus) ~= "table" then
 	MethodBus = {
+		Version = 2,
 		Installed = false,
 		Callback = nil,
 		OldFireServer = nil,
