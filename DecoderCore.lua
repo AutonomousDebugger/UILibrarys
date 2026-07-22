@@ -2,7 +2,7 @@
 -- No GUI code belongs in this file.
 
 local DecoderCore = {
-	Version = "2.1.1",
+	Version = "2.2.0",
 }
 
 local Environment = type(getgenv) == "function" and getgenv() or _G
@@ -49,7 +49,7 @@ DecoderCore.State = State
 
 local PreviousNamecallBus = rawget(Environment, "__DecoderCoreNamecallBus")
 local NamecallBus = PreviousNamecallBus
-if type(NamecallBus) == "table" and NamecallBus.Version ~= 2 then
+if type(NamecallBus) == "table" and NamecallBus.Version ~= 3 then
 	-- Older Decoder hooks scheduled live Instances with task.defer. Their hook
 	-- closure reads this field dynamically, so clearing it safely retires them.
 	NamecallBus.Callback = nil
@@ -57,7 +57,7 @@ if type(NamecallBus) == "table" and NamecallBus.Version ~= 2 then
 end
 if type(NamecallBus) ~= "table" then
 	NamecallBus = {
-		Version = 2,
+		Version = 3,
 		Installed = false,
 		Callback = nil,
 		OldNamecall = nil,
@@ -98,10 +98,6 @@ local function LeaveNamecall(Thread)
 	NamecallBus.Depth[Thread] = Depth > 0 and Depth or nil
 end
 
-local function InNamecall()
-	return (NamecallBus.Depth[CurrentThread()] or 0) > 0
-end
-
 local function InstallNamecallHook()
 	if NamecallBus.Installed then
 		return true, "already installed"
@@ -129,83 +125,23 @@ local function InstallNamecallHook()
 			local CallingSuccess, CallingResult = pcall(GetCallingScript)
 			CallingScript = CallingSuccess and CallingResult or nil
 		end
-		if NamecallBus.Callback then
-			-- Keep live Instances on the hook's current thread. Roblox capability
-			-- access is not inherited by task.defer/task.spawn threads.
-			pcall(NamecallBus.Callback, Self, CanonicalMethod, Arguments, nil, "__namecall", CallingScript)
-		end
 
+		-- Forward the untouched call before doing any path/GUI work. Formatting an
+		-- Instance can perform nested namecalls, which must never happen while the
+		-- executor is still preparing to forward FireServer/InvokeServer.
 		local Thread = EnterNamecall()
 		local Results = table.pack(OldNamecall(Self, table.unpack(Arguments, 1, Arguments.n)))
 		LeaveNamecall(Thread)
+		if NamecallBus.Callback then
+			-- Keep live Instances on this capability-bearing hook thread.
+			pcall(NamecallBus.Callback, Self, CanonicalMethod, Arguments, IsInvoke and Results or nil, "__namecall", CallingScript)
+		end
 		return table.unpack(Results, 1, Results.n)
 	end))
 
 	NamecallBus.OldNamecall = OldNamecall
 	NamecallBus.Installed = true
 	return true, HookMetamethodName .. "/" .. GetNamecallName
-end
-
-local function InstallMethodHooks()
-	if MethodBus.Installed then
-		return true, "already installed"
-	end
-	if not HookFunction then
-		return false, "hookfunction unavailable"
-	end
-
-	local SampleEvent = Instance.new("RemoteEvent")
-	local SampleFunction = Instance.new("RemoteFunction")
-	local OldFireServer
-	local OldInvokeServer
-
-	local FireSuccess, FireResult = pcall(function()
-		OldFireServer = HookFunction(SampleEvent.FireServer, NewCClosure(function(Self, ...)
-			local Arguments = table.pack(...)
-			if not InNamecall() and MethodBus.Callback then
-				local CallingScript
-				if GetCallingScript then
-					local CallingSuccess, CallingResult = pcall(GetCallingScript)
-					CallingScript = CallingSuccess and CallingResult or nil
-				end
-				pcall(MethodBus.Callback, Self, "FireServer", Arguments, nil, "hookfunction.FireServer", CallingScript)
-			end
-			return OldFireServer(Self, table.unpack(Arguments, 1, Arguments.n))
-		end))
-		return OldFireServer
-	end)
-
-	local InvokeSuccess, InvokeResult = pcall(function()
-		OldInvokeServer = HookFunction(SampleFunction.InvokeServer, NewCClosure(function(Self, ...)
-			local Arguments = table.pack(...)
-			local Results = table.pack(OldInvokeServer(Self, table.unpack(Arguments, 1, Arguments.n)))
-			if not InNamecall() and MethodBus.Callback then
-				local CallingScript
-				if GetCallingScript then
-					local CallingSuccess, CallingResult = pcall(GetCallingScript)
-					CallingScript = CallingSuccess and CallingResult or nil
-				end
-				pcall(MethodBus.Callback, Self, "InvokeServer", Arguments, Results, "hookfunction.InvokeServer", CallingScript)
-			end
-			return table.unpack(Results, 1, Results.n)
-		end))
-		return OldInvokeServer
-	end)
-
-	SampleEvent:Destroy()
-	SampleFunction:Destroy()
-
-	if not FireSuccess or type(FireResult) ~= "function" then
-		return false, "FireServer hook failed: " .. tostring(FireResult)
-	end
-	if not InvokeSuccess or type(InvokeResult) ~= "function" then
-		return false, "InvokeServer hook failed: " .. tostring(InvokeResult)
-	end
-
-	MethodBus.OldFireServer = OldFireServer
-	MethodBus.OldInvokeServer = OldInvokeServer
-	MethodBus.Installed = true
-	return true, HookFunctionName
 end
 
 local function Quote(Value)
@@ -521,7 +457,9 @@ local function OutgoingCallback(Remote, Method, Arguments, Results, Source, Call
 	DecoderCore.Record("Outgoing", Remote, Method, Arguments, Results, Source, CallingScript)
 end
 NamecallBus.Callback = OutgoingCallback
-MethodBus.Callback = OutgoingCallback
+-- Namecall-only outgoing capture is intentional. Layering a FireServer
+-- hookfunction hook can double-observe or disturb executor forwarding.
+MethodBus.Callback = nil
 
 function DecoderCore.OnTraffic(Callback)
 	assert(type(Callback) == "function", "OnTraffic callback must be a function")
@@ -615,16 +553,15 @@ function DecoderCore.Start()
 	end
 	Environment.__DecoderCoreRuntime = DecoderCore
 	NamecallBus.Callback = OutgoingCallback
-	MethodBus.Callback = OutgoingCallback
+	MethodBus.Callback = nil
 	State.Active = true
 
 	local NamecallCallOk, NamecallInstalled, NamecallDetails = pcall(InstallNamecallHook)
 	State.NamecallReady = NamecallCallOk and NamecallInstalled == true
 	State.NamecallStatus = NamecallCallOk and tostring(NamecallDetails) or tostring(NamecallInstalled)
 
-	local MethodCallOk, MethodInstalled, MethodDetails = pcall(InstallMethodHooks)
-	State.MethodHooksReady = MethodCallOk and MethodInstalled == true
-	State.MethodHooksStatus = MethodCallOk and tostring(MethodDetails) or tostring(MethodInstalled)
+	State.MethodHooksReady = false
+	State.MethodHooksStatus = "disabled (namecall-only mode)"
 
 	for _, Object in ipairs(game:GetDescendants()) do
 		pcall(Observe, Object)
@@ -632,7 +569,7 @@ function DecoderCore.Start()
 	table.insert(State.Connections, game.DescendantAdded:Connect(function(Object)
 		pcall(Observe, Object)
 	end))
-	return State.NamecallReady or State.MethodHooksReady
+	return State.NamecallReady
 end
 
 function DecoderCore.Stop()
