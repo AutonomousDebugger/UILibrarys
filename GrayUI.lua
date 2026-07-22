@@ -1,5 +1,5 @@
 local GrayUI = {}
-GrayUI.Version = "1.2.0"
+GrayUI.Version = "1.2.1"
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -100,6 +100,11 @@ local function bindHover(button, normalColor, hoverColor)
 	end)
 end
 
+local function inputPosition2(input)
+	local position = input.Position
+	return Vector2.new(position.X, position.Y)
+end
+
 local function makeDraggable(handle, target)
 	local dragging = false
 	local dragMode
@@ -113,7 +118,7 @@ local function makeDraggable(handle, target)
 			dragging = true
 			dragMode = input.UserInputType == Enum.UserInputType.Touch and "Touch" or "Mouse"
 			touchInput = dragMode == "Touch" and input or nil
-			dragStart = input.Position
+			dragStart = inputPosition2(input)
 			startCenter = Vector2.new(
 				target.AbsolutePosition.X + target.AbsoluteSize.X * target.AnchorPoint.X,
 				target.AbsolutePosition.Y + target.AbsoluteSize.Y * target.AnchorPoint.Y
@@ -135,7 +140,7 @@ local function makeDraggable(handle, target)
 		local isTouchMove = dragMode == "Touch" and input == touchInput
 
 		if dragging and (isMouseMove or isTouchMove) then
-			local delta = input.Position - dragStart
+			local delta = inputPosition2(input) - dragStart
 			local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
 				or Vector2.new(1920, 1080)
 			local halfWidth = target.AbsoluteSize.X * target.AnchorPoint.X
@@ -167,7 +172,7 @@ local function makeResizable(handle, target, minimum, maximum)
 			resizing = true
 			resizeMode = input.UserInputType == Enum.UserInputType.Touch and "Touch" or "Mouse"
 			touchInput = resizeMode == "Touch" and input or nil
-			resizeStart = input.Position
+			resizeStart = inputPosition2(input)
 			startSize = target.AbsoluteSize
 
 			input.Changed:Connect(function()
@@ -186,7 +191,7 @@ local function makeResizable(handle, target, minimum, maximum)
 		local isTouchMove = resizeMode == "Touch" and input == touchInput
 
 		if resizing and (isMouseMove or isTouchMove) then
-			local delta = input.Position - resizeStart
+			local delta = inputPosition2(input) - resizeStart
 			local width = math.clamp(startSize.X + delta.X, minimum.X, maximum.X)
 			local height = math.clamp(startSize.Y + delta.Y, minimum.Y, maximum.Y)
 			target.Size = UDim2.fromOffset(width, height)
@@ -893,92 +898,3 @@ function GrayUI:CreateWindow(options)
 	})
 
 	local pageHolder = create("Frame", {
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(12, 102),
-		Size = UDim2.new(1, -24, 1, -114),
-		Parent = main,
-	})
-
-	local resizeHandle = create("TextButton", {
-		Active = true,
-		AnchorPoint = Vector2.new(1, 1),
-		AutoButtonColor = false,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Font = Enum.Font.Code,
-		Position = UDim2.fromScale(1, 1),
-		Size = UDim2.fromOffset(28, 28),
-		Text = "◢",
-		TextColor3 = Theme.Muted,
-		TextSize = 15,
-		ZIndex = 20,
-		Parent = main,
-	})
-
-	local reopen = create("TextButton", {
-		Active = true,
-		AnchorPoint = Vector2.new(0.5, 0),
-		AutoButtonColor = false,
-		BackgroundColor3 = Theme.PanelLight,
-		BorderSizePixel = 0,
-		Font = Enum.Font.GothamBold,
-		Position = UDim2.new(0.5, 0, 0, 12),
-		Size = UDim2.fromOffset(96, 36),
-		Text = tostring(options.ReopenText or "OPEN UI"),
-		TextColor3 = Theme.Text,
-		TextSize = 11,
-		Visible = false,
-		ZIndex = 100,
-		Parent = screenGui,
-	})
-	addCorner(reopen, 9)
-	addStroke(reopen, Theme.Stroke, 0.05)
-	bindHover(reopen, Theme.PanelLight, Theme.ControlHover)
-
-	makeDraggable(titleBar, main)
-	makeDraggable(reopen, reopen)
-	makeResizable(resizeHandle, main, minimum, maximum)
-
-	local window = setmetatable({
-		Main = main,
-		PageHolder = pageHolder,
-		ScreenGui = screenGui,
-		Scale = mainScale,
-		Reopen = reopen,
-		TabBar = tabBar,
-		Tabs = {},
-		Theme = Theme,
-	}, Window)
-
-	local transitionId = 0
-	function window:SetOpen(open)
-		transitionId = transitionId + 1
-		local thisTransition = transitionId
-
-		if open then
-			reopen.Visible = false
-			main.Visible = true
-			mainScale.Scale = 0.92
-			tween(mainScale, { Scale = 1 }, 0.18)
-		else
-			tween(mainScale, { Scale = 0.92 }, 0.15)
-			task.delay(0.15, function()
-				if transitionId == thisTransition and screenGui.Parent then
-					main.Visible = false
-					reopen.Visible = true
-				end
-			end)
-		end
-	end
-
-	close.Activated:Connect(function()
-		window:SetOpen(false)
-	end)
-	reopen.Activated:Connect(function()
-		window:SetOpen(true)
-	end)
-
-	return window
-end
-
-return GrayUI
